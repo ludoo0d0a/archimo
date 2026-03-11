@@ -1,0 +1,59 @@
+name: Build and report
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build, test and generate report
+        run: mvn -B package -Darchimo.generateReport=true
+
+      - name: Upload fat JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: archimo-jar
+          path: target/archimo-*-all.jar
+
+      - name: Upload architecture report
+        uses: actions/upload-artifact@v4
+        with:
+          name: modulith-docs
+          path: target/modulith-docs/
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/modulith-docs/site
+
+  deploy:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: github_pages
+    steps:
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,253 @@
+# Archimo – Usage
+
+Archimo extracts **C4 (PlantUML)**, **Mermaid** diagrams and a **static website report** from Spring Modulith applications. You can run it as an **executable JAR** (e.g. in CI) or **from your tests** (JaCoCo-style) so reports are produced automatically.
+
+---
+
+## 1. Build
+
+```bash
+mvn package
+```
+
+Produces:
+
+- **`target/archimo-<version>-all.jar`** – runnable fat JAR (use this for CLI and CI)
+- **`target/archimo-<version>.jar`** – thin JAR (requires `lib/` from `target/lib` when using `java -jar` with `-cp`)
+
+---
+
+## 2. Run as executable JAR
+
+Two modes: **project mode** (point at a Maven project; Archimo builds it if needed) and **classpath mode** (you provide classpath and main class or base package).
+
+### 2.1 Project mode (recommended for CI)
+
+Point at the root of your Maven/Spring Modulith application. The tool runs `mvn compile dependency:copy-dependencies` if needed, then extracts.
+
+```bash
+java -jar target/archimo-1.0.0-SNAPSHOT-all.jar \
+  --project-dir=/path/to/your/spring-modulith-app \
+  --output-dir=./docs
+```
+
+Optional:
+
+- **`--app-class=com.example.YourApplication`** – use if the main class is not declared under `spring-boot-maven-plugin` in `pom.xml`.
+- **`--output-dir=<path>`** – default is `<project-dir>/target/modulith-docs`.
+
+Example in CI (e.g. GitHub Actions):
+
+```yaml
+- run: mvn -B package -DskipTests
+- run: java -jar target/archimo-*-all.jar --project-dir=${{ github.workspace }} --output-dir=${{ github.workspace }}/target/modulith-docs
+- uses: actions/upload-artifact@v4
+  with:
+    name: modulith-docs
+    path: target/modulith-docs/
+```
+
+### 2.2 Classpath mode
+
+Use when the project is already built and you want to run with an explicit classpath (e.g. from the app’s root):
+
+```bash
+# From your Spring Modulith project root (after mvn package)
+java -cp "target/classes:target/dependency/*:path/to/archimo-1.0.0-SNAPSHOT-all.jar" \
+  fr.geoking.archimo.ModulithExtractorMain \
+  --app-class=com.example.YourApplication \
+  --output-dir=./docs
+```
+
+Or with **base package** instead of main class:
+
+```bash
+java -cp "target/classes:target/dependency/*:path/to/archimo-*-all.jar" \
+  fr.geoking.archimo.ModulithExtractorMain \
+  --base-package=com.example \
+  --output-dir=./docs
+```
+
+---
+
+## 3. Include in tests (JaCoCo-style)
+
+You can run the extractor **during your test phase** so that every `mvn test` (or CI test run) produces the same outputs (PlantUML, Mermaid, JSON, website). Two options: **JUnit 5 extension** or **one-off test + system property**.
+
+### 3.1 JUnit 5 extension (recommended)
+
+Add Archimo as a **test** dependency and attach the report extension to a test class. The report is generated **after all tests** in that class.
+
+**1. Add dependency (test scope):**
+
+```xml
+<dependency>
+  <groupId>fr.geoking.archimo</groupId>
+  <artifactId>archimo</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <scope>test</scope>
+</dependency>
+```
+
+**2. Use the extension and annotation:**
+
+```java
+import fr.geoking.archimo.report.ArchimoReport;
+import fr.geoking.archimo.report.ArchimoReportExtension;
+import org.junit.jupiter.api.extension.ExtendWith;
+
+@ExtendWith(ArchimoReportExtension.class)
+@ArchimoReport(mainClass = MyApplication.class)  // or @ArchimoReport(MyApplication.class)
+class MyApplicationTests {
+    // your tests; after they finish, report is written to target/modulith-docs
+}
+```
+
+Or configure via **system properties** (no annotation):
+
+- **`archimo.appClass`** – fully qualified main class (e.g. `com.example.MyApplication`).
+- **`archimo.report.outputDir`** – output directory (default: `target/modulith-docs`).
+
+```bash
+mvn test -Darchimo.appClass=com.example.MyApplication
+```
+
+### 3.2 Generate report only in CI
+
+To generate the report only in CI (so local `mvn test` stays fast), set system properties in your CI script. The extension will still run after the test class; use a dedicated test class that runs only when the property is set:
+
+```java
+@ExtendWith(ArchimoReportExtension.class)
+@ArchimoReport(MyApplication.class)
+@EnabledIfSystemProperty(named = "archimo.generateReport", matches = "true")
+class ArchitectureReportTest {
+    @Test
+    void placeholderSoClassRuns() { /* report is generated in afterAll */ }
+}
+```
+
+Then in CI:
+
+```bash
+mvn test -Darchimo.generateReport=true
+```
+
+and archive `target/modulith-docs/` as an artifact (or publish the `site/` folder to GitHub Pages).
+
+### 3.3 Call the extractor from a test (no extension)
+
+You can also call `ModulithExtractor` directly in a test and write to a fixed directory:
+
+```java
+@Test
+void generateArchitectureReport() throws Exception {
+    Path outputDir = Path.of("target/modulith-docs");
+    ApplicationModules modules = ApplicationModules.of(MyApplication.class);
+    ModulithExtractor extractor = new ModulithExtractor(modules, outputDir);
+    extractor.extract();
+}
+```
+
+---
+
+## 4. Output layout (like JaCoCo report)
+
+All paths are relative to `--output-dir` (or `target/modulith-docs` when using the extension).
+
+| Output | Path | Description |
+|--------|------|-------------|
+| **PlantUML (C4)** | `*.puml` | All-modules and per-module C4 diagrams |
+| **Module canvases** | `*.adoc` | Asciidoc tables per module (beans, events, config) |
+| **Mermaid** | `mermaid/*.mmd` | Event flows, sequences, module dependencies |
+| **JSON** | `json/*.json` | `events-map.json`, `event-flows.json`, `sequences.json`, `module-dependencies.json`, `extract-result.json` |
+| **Website report** | `site/` | Static HTML/CSS/JS report: browse C4 diagrams, search modules/classes/events (similar to JaCoCo HTML report) |
+
+The **website** (`site/index.html`) is a single-page app that loads `site-index.json` and lets you filter diagrams and search modules, classes and events.
+
+---
+
+## 5. CI/CD examples
+
+### 5.1 GitHub Actions: JAR + report artifact
+
+```yaml
+- run: mvn -B package -Darchimo.generateReport=true   # if report is generated by a test
+# or:
+- run: java -jar target/archimo-*-all.jar --project-dir=. --output-dir=target/modulith-docs
+
+- uses: actions/upload-artifact@v4
+  with:
+    name: modulith-docs
+    path: target/modulith-docs/
+```
+
+### 5.2 GitHub Actions: Publish site to GitHub Pages
+
+This project’s workflow (`.github/workflows/build.yml`) publishes the report on every push to `main`/`master` using the official Pages actions:
+
+```yaml
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    # ... build and generate report to target/modulith-docs ...
+    - uses: actions/upload-pages-artifact@v3
+      with:
+        path: target/modulith-docs/site
+
+  deploy:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: github_pages
+    steps:
+      - uses: actions/deploy-pages@v4
+```
+
+Enable **Settings → Pages → Source: GitHub Actions** in your repo. Alternative (push to `gh-pages` branch):
+
+```yaml
+- name: Deploy site to GitHub Pages
+  uses: peaceiris/actions-gh-pages@v4
+  with:
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+    publish_dir: target/modulith-docs/site
+```
+
+### 5.3 Consuming project (your app): test + report
+
+In **your** Spring Modulith app’s `pom.xml`:
+
+```xml
+<dependency>
+  <groupId>fr.geoking.archimo</groupId>
+  <artifactId>archimo</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <scope>test</scope>
+</dependency>
+```
+
+Then add a test class with `@ExtendWith(ArchimoReportExtension.class)` and `@ArchimoReport(YourApplication.class)`. On `mvn test`, the report is written to `target/modulith-docs`. In CI, add a step to upload `target/modulith-docs` as an artifact (and optionally publish `site/` to Pages).
+
+---
+
+## 6. Requirements
+
+- **Java 17+**
+- Target project: **Maven**, **Spring Modulith**, with `spring-modulith-core` / `spring-modulith-docs` on the classpath when running the extractor (handled automatically in project mode).
+
+---
+
+## 7. Summary
+
+| Use case | Command / setup |
+|----------|------------------|
+| **CLI (another project)** | `java -jar archimo-*-all.jar --project-dir=/path/to/app [--output-dir=...]` |
+| **CLI (classpath)** | `java -cp "..." fr.geoking.archimo.ModulithExtractorMain --app-class=... [--output-dir=...]` |
+| **Report from tests** | Add archimo test dependency + `@ExtendWith(ArchimoReportExtension.class)` and `@ArchimoReport(YourApp.class)` |
+| **Report only in CI** | `mvn test -Darchimo.generateReport=true` (and optionally `-Darchimo.appClass=...`) then archive `target/modulith-docs` |
+
+Outputs are always: **PlantUML**, **Mermaid**, **JSON** and **website report** under the chosen output directory.

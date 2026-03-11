@@ -1,0 +1,18 @@
+package fr.geoking.archimo.extract.model;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import fr.geoking.archimo.model.ModuleEvents;
+
+import java.util.List;
+
+/**
+ * Container for all extracted artifacts (events map, flows, sequences).
+ */
+@JsonInclude(JsonInclude.Include.NON_EMPTY)
+public record ExtractResult(
+    List<ModuleEvents> eventsMap,
+    List<EventFlow> flows,
+    List<SequenceFlow> sequences,
+    List<ModuleDependency> moduleDependencies
+) {}
+

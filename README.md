@@ -1,74 +1,48 @@
-# Modulith Extractor
+# Archimo
 
-Java 17 CLI tool to parse a **Maven multi-module** project using **Spring Modulith** and extract:
+Java 17 CLI and test integration to parse **Spring Modulith** applications and extract:
 
-- **C4 diagrams** (PlantUML) – all modules and per-module component diagrams  
-- **Module canvases** (Asciidoc) – beans, aggregates, events, config per module  
+- **C4 diagrams (PlantUML)** – all modules and per-module component diagrams  
+- **Module canvases (Asciidoc)** – beans, aggregates, events, config per module  
 - **Event map** – which modules publish/listen to which internal events  
-- **Flows & sequences** – event flows and Mermaid sequence diagrams  
+- **Flows & sequences** – event flows and **Mermaid** sequence/dependency diagrams  
+- **Website report** – static HTML report to browse diagrams and search modules/classes/events (JaCoCo-style)
 
-## Build
+## Quick start
 
 ```bash
 mvn package
+java -jar target/archimo-1.0.0-SNAPSHOT-all.jar --project-dir=/path/to/your/modulith-app --output-dir=./docs
 ```
 
-Produces:
+Or run the extractor **from your tests** so every `mvn test` produces the same outputs:
 
-- `target/modulith-extractor-1.0.0-SNAPSHOT-all.jar` – runnable fat JAR (use this for CLI)
-
-## Usage
-
-### 1. Project mode (recommended)
-
-Point at the root of your Maven/Spring Modulith application. The tool will run `mvn compile dependency:copy-dependencies` if needed, then extract.
-
-```bash
-java -jar target/modulith-extractor-1.0.0-SNAPSHOT-all.jar \
-  --project-dir=/path/to/your/spring-modulith-app \
-  --output-dir=./docs
+```java
+@ExtendWith(ArchimoReportExtension.class)
+@ArchimoReport(MyApplication.class)
+class MyApplicationTests { ... }
 ```
 
-Optional: `--app-class=com.example.YourApplication` if the main class is not in `pom.xml` (e.g. under `spring-boot-maven-plugin`).
-
-### 2. Classpath mode
-
-Use when the project is already built and you want to run with an explicit classpath (e.g. from the app’s root):
-
-```bash
-# From your Spring Modulith project root (after mvn package)
-java -cp "target/classes:target/dependency/*:path/to/modulith-extractor-1.0.0-SNAPSHOT-all.jar" \
-  com.archi.modulith.extract.ModulithExtractorMain \
-  --app-class=com.example.YourApplication \
-  --output-dir=./docs
-```
-
-Or with base package instead of main class:
-
-```bash
-java -cp "target/classes:target/dependency/*:path/to/modulith-extractor-*-all.jar" \
-  com.archi.modulith.extract.ModulithExtractorMain \
-  --base-package=com.example \
-  --output-dir=./docs
-```
+**Full usage (executable JAR, classpath mode, test integration, CI/CD):** see **[USAGE.md](USAGE.md)**.
 
 ## Output layout
 
-- **C4 / PlantUML**: `*.puml` in the output directory (all-modules + per-module diagrams)  
-- **Module canvases**: `*.adoc` (Asciidoc tables per module)  
-- **JSON**: `json/events-map.json`, `json/event-flows.json`, `json/sequences.json`, `json/module-dependencies.json`, `json/extract-result.json`  
-- **Mermaid**: `mermaid/event-flows.mmd`, `mermaid/sequence-*.mmd`, `mermaid/module-dependencies.mmd`  
+- **C4 / PlantUML**: `*.puml` in the output directory  
+- **Mermaid**: `mermaid/*.mmd` (event flows, sequences, module dependencies)  
+- **JSON**: `json/events-map.json`, `event-flows.json`, `sequences.json`, `module-dependencies.json`  
+- **Website report**: `site/` (index.html + site-index.json for navigation and search)
+
+## CI/CD
+
+The workflow in `.github/workflows/build.yml`:
+
+- Builds and runs tests (report is generated from the sample app via `-Darchimo.generateReport=true`)
+- Uploads **archimo-jar** and **modulith-docs** as artifacts
+- **Publishes the HTML report to GitHub Pages** on every push to `main`/`master`
+
+Enable Pages in your repo: **Settings → Pages → Source: GitHub Actions**. The report will be available at `https://<owner>.github.io/<repo>/`.
 
 ## Requirements
 
 - Java 17+  
-- Target project: Maven, Spring Modulith, with `spring-modulith-core` / `spring-modulith-docs` on the classpath when running the extractor (handled automatically in project mode)  
-
-## CI: Build JAR with GitHub Actions
-
-The workflow in `.github/workflows/build.yml` builds the project and uploads the fat JAR as an artifact:
-
-- **Trigger**: push / PR to `main` or `master`  
-- **Artifact**: `modulith-extractor-jar` → `modulith-extractor-*-all.jar`  
-
-Download the artifact from the Actions run to use the JAR elsewhere.
+- Target: Maven, Spring Modulith (`spring-modulith-core` / `spring-modulith-docs` on classpath; project mode runs Maven for you)

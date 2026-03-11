@@ -38,7 +38,7 @@ class ModulithExtractorTest {
                 .map(m -> m.moduleName())
                 .collect(Collectors.toSet());
 
-        assertThat(moduleNames).containsExactlyInAnyOrder("order", "catalog", "customer", "Invoice");
+        assertThat(moduleNames).containsExactlyInAnyOrder("Order", "Catalog", "Customer", "Invoice");
     }
 
     @Test
@@ -49,7 +49,7 @@ class ModulithExtractorTest {
 
         List<ModuleEvents> eventsMap = result.eventsMap();
 
-        var orderModule = eventsMap.stream().filter(m -> "order".equals(m.moduleName())).findFirst().orElseThrow();
+        var orderModule = eventsMap.stream().filter(m -> "Order".equals(m.moduleName())).findFirst().orElseThrow();
         assertThat(orderModule.publishedEvents())
                 .contains("fr.geoking.archimo.sample.ecommerce.order.OrderCreated");
         // order listens to catalog and customer events (cross-module)
@@ -57,7 +57,7 @@ class ModulithExtractorTest {
                 .contains("fr.geoking.archimo.sample.ecommerce.catalog.StockReserved",
                         "fr.geoking.archimo.sample.ecommerce.customer.AddressUpdated");
 
-        var catalogModule = eventsMap.stream().filter(m -> "catalog".equals(m.moduleName())).findFirst().orElseThrow();
+        var catalogModule = eventsMap.stream().filter(m -> "Catalog".equals(m.moduleName())).findFirst().orElseThrow();
         assertThat(catalogModule.eventsListenedTo())
                 .contains("fr.geoking.archimo.sample.ecommerce.order.OrderCreated");
     }
@@ -76,8 +76,8 @@ class ModulithExtractorTest {
                 .filter(f -> f.eventType().endsWith("OrderCreated"))
                 .findFirst()
                 .orElseThrow();
-        assertThat(orderCreatedFlow.publisherModule()).isEqualTo("order");
-        assertThat(orderCreatedFlow.listenerModules()).contains("catalog");
+        assertThat(orderCreatedFlow.publisherModule()).isEqualTo("Order");
+        assertThat(orderCreatedFlow.listenerModules()).contains("Catalog");
     }
 
     @Test
@@ -89,8 +89,8 @@ class ModulithExtractorTest {
         assertThat(result.sequences()).isNotEmpty();
         assertThat(result.sequences()).anyMatch(s ->
                 s.eventType().endsWith("OrderCreated")
-                        && "order".equals(s.publisherModule())
-                        && s.listenerModules().contains("catalog"));
+                        && "Order".equals(s.publisherModule())
+                        && s.listenerModules().contains("Catalog"));
     }
 
     @Test
@@ -102,7 +102,7 @@ class ModulithExtractorTest {
         List<ModuleDependency> deps = result.moduleDependencies();
         // catalog listens to order -> dependency from catalog to order (event listener)
         assertThat(deps).anyMatch(d ->
-                "catalog".equals(d.fromModule()) && "order".equals(d.toModule()));
+                "Catalog".equals(d.fromModule()) && "Order".equals(d.toModule()));
     }
 
     @Test

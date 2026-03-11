@@ -57,22 +57,22 @@ public final class ModulithExtractor {
 
         ExtractResult result = new ExtractResult(eventsMap, flows, sequences, moduleDependencies);
 
-        // 2. Write JSON artifacts
-        Path jsonDir = outputDir.resolve("json");
+        // 2. Delegate diagram outputs to pluggable writers (PlantUML, Mermaid, …)
+        for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
+            output.write(modules, outputDir, result);
+        }
+
+        // 3. Generate static website (architecture-as-code navigation & search)
+        writeSite(eventsMap, flows, moduleDependencies);
+
+        // 4. Write JSON artifacts last (use absolute path so output location is unambiguous)
+        Path jsonDir = outputDir.toAbsolutePath().resolve("json");
         Files.createDirectories(jsonDir);
         objectMapper.writeValue(jsonDir.resolve("events-map.json").toFile(), eventsMap);
         objectMapper.writeValue(jsonDir.resolve("event-flows.json").toFile(), flows);
         objectMapper.writeValue(jsonDir.resolve("sequences.json").toFile(), sequences);
         objectMapper.writeValue(jsonDir.resolve("module-dependencies.json").toFile(), moduleDependencies);
         objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
-
-        // 3. Delegate diagram outputs to pluggable writers (PlantUML, Mermaid, …)
-        for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
-            output.write(modules, outputDir, result);
-        }
-
-        // 4. Generate static website (architecture-as-code navigation & search)
-        writeSite(eventsMap, flows, moduleDependencies);
 
         return result;
     }

@@ -140,6 +140,7 @@
                                 </filter>
                             </filters>
                             <finalName>${project.artifactId}-${project.version}-all</finalName>
+                            <replaceOriginalArtifact>false</replaceOriginalArtifact>
                             <shadedArtifactAttached>true</shadedArtifactAttached>
                             <shadedClassifierName>all</shadedClassifierName>
                         </configuration>

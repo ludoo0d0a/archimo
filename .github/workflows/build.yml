@@ -32,7 +32,7 @@ jobs:
           cache: maven
 
       - name: Build, test and generate report
-        run: mvn -B package -Darchimo.generateReport=true
+        run: mvn -B --no-transfer-progress package -Darchimo.generateReport=true
 
       - name: Upload fat JAR
         uses: actions/upload-artifact@v4

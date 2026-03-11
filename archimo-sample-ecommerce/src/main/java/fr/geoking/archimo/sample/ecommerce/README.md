@@ -46,7 +46,7 @@ Cross-module events are between different top-level modules; internal events are
 
 ## Running extraction
 
-From the Archimo project root (with this sample on the test classpath):
+From the Archimo project root (with this sample on the classpath):
 
 - In tests: `ApplicationModules.of(EcommerceApplication.class)` then `ModulithExtractor(modules, outputDir).extract()`.
 - From CLI against a real project: use `--project-dir` or `--app-class=fr.geoking.archimo.sample.ecommerce.EcommerceApplication` (and the right classpath).

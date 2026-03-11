@@ -38,18 +38,18 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: archimo-jar
-          path: target/archimo-*-all.jar
+          path: archimo/target/archimo-*-all.jar
 
       - name: Upload architecture report
         uses: actions/upload-artifact@v4
         with:
           name: modulith-docs
-          path: target/modulith-docs/
+          path: archimo/target/modulith-docs/
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: target/modulith-docs/site
+          path: archimo/target/modulith-docs/site
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

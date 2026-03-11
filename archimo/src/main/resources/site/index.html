@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <title>Modulith Architecture Explorer</title>
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/plantuml-encoder@1.4.0/dist/plantuml-encoder.min.js"></script>
 </head>
 <body>
   <header>
@@ -15,16 +17,24 @@
 
   <main>
     <section class="sidebar">
-      <h2>C4 Diagrams</h2>
+      <h2>Diagrams</h2>
       <div id="diagramFilters" class="chip-row">
         <button data-level="all" class="chip chip-active">All</button>
-        <button data-level="system" class="chip">System (overview)</button>
-        <button data-level="component" class="chip">Component (modules)</button>
+        <button data-level="system" class="chip">System (C4)</button>
+        <button data-level="component" class="chip">Component (C4)</button>
+        <button data-level="mermaid" class="chip">Mermaid</button>
       </div>
       <ul id="diagramList" class="diagram-list"></ul>
     </section>
 
     <section class="content">
+      <div id="diagramViewerSection" class="diagram-viewer-section hidden">
+        <h2 id="diagramViewerTitle" class="diagram-viewer-title"></h2>
+        <div id="diagramViewer" class="diagram-viewer"></div>
+        <p class="diagram-viewer-raw-link">
+          <a id="diagramRawLink" href="#" target="_blank" rel="noopener">Open raw source</a>
+        </p>
+      </div>
       <h2>Search results</h2>
       <div id="resultsSummary" class="results-summary"></div>
 

@@ -1,10 +1,14 @@
 (() => {
   let index = null;
   let currentLevel = 'all';
+  let selectedDiagram = null;
 
   async function loadIndex() {
     const res = await fetch('site-index.json');
     index = await res.json();
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+    }
     bindUI();
     renderDiagrams();
     renderSearch('');
@@ -32,20 +36,91 @@
     container.innerHTML = '';
     if (!index) return;
 
-    index.diagrams
+    const list = index.diagrams
       .filter(d => currentLevel === 'all' || d.level === currentLevel)
-      .sort((a, b) => a.title.localeCompare(b.title))
-      .forEach(d => {
-        const li = document.createElement('li');
-        li.className = 'diagram-item';
-        const link = document.createElement('a');
-        link.textContent = d.title + ' (' + d.level + ')';
-        // Link to the raw PlantUML file so users can open it in their tooling
-        link.href = '../' + d.path;
-        link.target = '_blank';
-        li.appendChild(link);
-        container.appendChild(li);
+      .sort((a, b) => a.title.localeCompare(b.title));
+
+    list.forEach(d => {
+      const li = document.createElement('li');
+      li.className = 'diagram-item';
+      const link = document.createElement('a');
+      link.href = '#';
+      link.textContent = d.title + (d.level !== 'mermaid' ? ' (' + d.level + ')' : '');
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        selectDiagram(d);
       });
+      li.appendChild(link);
+      container.appendChild(li);
+    });
+  }
+
+  function selectDiagram(d) {
+    selectedDiagram = d;
+    const section = document.getElementById('diagramViewerSection');
+    const titleEl = document.getElementById('diagramViewerTitle');
+    const viewerEl = document.getElementById('diagramViewer');
+    const rawLink = document.getElementById('diagramRawLink');
+
+    section.classList.remove('hidden');
+    titleEl.textContent = d.title;
+    rawLink.href = '../' + d.path;
+    rawLink.textContent = 'Open raw ' + (d.format === 'plantuml' ? 'PlantUML' : 'Mermaid') + ' source';
+
+    viewerEl.innerHTML = '';
+    if (!d.source) {
+      viewerEl.textContent = 'Diagram source not available.';
+      return;
+    }
+
+    if (d.format === 'mermaid') {
+      renderMermaid(viewerEl, d.source);
+    } else if (d.format === 'plantuml') {
+      renderPlantUml(viewerEl, d.source);
+    } else {
+      viewerEl.textContent = 'Unknown diagram format.';
+    }
+  }
+
+  function renderMermaid(container, source) {
+    if (typeof mermaid === 'undefined') {
+      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">Mermaid.js not loaded. Showing raw source.</p>';
+      return;
+    }
+    const pre = document.createElement('pre');
+    pre.className = 'mermaid';
+    pre.textContent = source;
+    container.appendChild(pre);
+    mermaid.run({ nodes: [pre], suppressErrors: true }).catch(() => {
+      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">Mermaid render failed. Showing raw source.</p>';
+    });
+  }
+
+  function renderPlantUml(container, source) {
+    let encoded;
+    try {
+      encoded = typeof plantumlEncoder !== 'undefined' ? plantumlEncoder.encode(source) : null;
+    } catch (e) {
+      encoded = null;
+    }
+    if (!encoded) {
+      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">PlantUML encoder not available. Showing raw source.</p>';
+      return;
+    }
+    const img = document.createElement('img');
+    img.alt = selectedDiagram ? selectedDiagram.title : 'Diagram';
+    img.loading = 'lazy';
+    img.src = 'https://www.plantuml.com/plantuml/svg/' + encoded;
+    img.onerror = () => {
+      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">PlantUML server unreachable or invalid diagram. Showing raw source.</p>';
+    };
+    container.appendChild(img);
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
   }
 
   function renderSearch(term) {

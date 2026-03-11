@@ -214,32 +214,61 @@ public final class ModulithExtractor {
     private List<Map<String, Object>> buildDiagramsIndex() throws IOException {
         List<Map<String, Object>> diagrams = new ArrayList<>();
 
-        // Search for generated PlantUML files under the output directory.
-        try (var paths = Files.walk(outputDir, 3)) {
+        // PlantUML files (C4 from Spring Modulith Documenter)
+        try (var paths = Files.walk(outputDir, 5)) {
             paths.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".puml"))
                     .forEach(p -> {
-                        String relative = outputDir.relativize(p).toString().replace('\\', '/');
-                        String fileName = p.getFileName().toString();
-                        String id = fileName.substring(0, fileName.length() - ".puml".length());
+                        try {
+                            String relative = outputDir.relativize(p).toString().replace('\\', '/');
+                            String fileName = p.getFileName().toString();
+                            String id = fileName.substring(0, fileName.length() - ".puml".length());
+                            String level = fileName.toLowerCase().contains("modules") ? "system" : "component";
+                            String category = level.equals("system") ? "overview" : "module";
+                            String source = Files.readString(p);
 
-                        String level;
-                        String category;
-                        if (fileName.toLowerCase().contains("modules")) {
-                            level = "system";
-                            category = "overview";
-                        } else {
-                            level = "component";
-                            category = "module";
+                            Map<String, Object> entry = new LinkedHashMap<>();
+                            entry.put("id", id);
+                            entry.put("title", fileName);
+                            entry.put("path", relative);
+                            entry.put("level", level);
+                            entry.put("category", category);
+                            entry.put("format", "plantuml");
+                            entry.put("source", source);
+                            diagrams.add(entry);
+                        } catch (IOException e) {
+                            throw new RuntimeException("Failed to read diagram: " + p, e);
                         }
-
-                        Map<String, Object> entry = new LinkedHashMap<>();
-                        entry.put("id", id);
-                        entry.put("title", fileName);
-                        entry.put("path", relative);
-                        entry.put("level", level);
-                        entry.put("category", category);
-                        diagrams.add(entry);
                     });
+        }
+
+        // Mermaid files (event flows, sequences, module dependencies)
+        Path mermaidDir = outputDir.resolve("mermaid");
+        if (Files.isDirectory(mermaidDir)) {
+            try (var paths = Files.list(mermaidDir)) {
+                paths.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".mmd"))
+                        .forEach(p -> {
+                            try {
+                                String fileName = p.getFileName().toString();
+                                String id = fileName.substring(0, fileName.length() - ".mmd".length());
+                                String relative = "mermaid/" + fileName;
+                                String source = Files.readString(p);
+                                String level = "mermaid";
+                                String category = id.startsWith("sequence-") ? "sequence" : id.equals("event-flows") ? "flow" : "dependencies";
+
+                                Map<String, Object> entry = new LinkedHashMap<>();
+                                entry.put("id", id);
+                                entry.put("title", id.replace('-', ' '));
+                                entry.put("path", relative);
+                                entry.put("level", level);
+                                entry.put("category", category);
+                                entry.put("format", "mermaid");
+                                entry.put("source", source);
+                                diagrams.add(entry);
+                            } catch (IOException e) {
+                                throw new RuntimeException("Failed to read Mermaid diagram: " + p, e);
+                            }
+                        });
+            }
         }
 
         return diagrams;

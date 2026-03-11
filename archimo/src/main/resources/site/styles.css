@@ -113,6 +113,68 @@ main {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
+.hidden {
+  display: none;
+}
+
+.diagram-viewer-section {
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.diagram-viewer-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.diagram-viewer {
+  background: #f9fafb;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow: auto;
+  max-height: 75vh;
+}
+
+.diagram-viewer img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.diagram-viewer .mermaid {
+  margin: 0;
+}
+
+.diagram-viewer-raw-link {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+}
+
+.diagram-viewer-raw-link a {
+  color: #4f46e5;
+  text-decoration: none;
+}
+
+.diagram-viewer-raw-link a:hover {
+  text-decoration: underline;
+}
+
+.diagram-source {
+  margin: 0;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.diagram-fallback {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
 .results-summary {
   font-size: 0.8rem;
   color: #4b5563;

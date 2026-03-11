@@ -302,7 +302,16 @@ public final class ModulithExtractor {
     }
 
     private String eventTypeName(EventType ev) {
-        return ev.getType().getFullName();
+        return toSimpleEventName(ev.getType().getFullName());
+    }
+
+    /**
+     * Returns the simple class name (no package) for display in events, diagrams and report.
+     */
+    private static String toSimpleEventName(String fullName) {
+        if (fullName == null || fullName.isEmpty()) return fullName;
+        int lastDot = fullName.lastIndexOf('.');
+        return lastDot >= 0 ? fullName.substring(lastDot + 1) : fullName;
     }
 
     private List<String> toEventTypeNames(List<?> list) {
@@ -316,13 +325,14 @@ public final class ModulithExtractor {
         if (o == null) return "?";
         String name = javaClassFullName(o);
         if (name != null) {
-            return name;
+            return toSimpleEventName(name);
         }
         try {
             var getName = o.getClass().getMethod("getName");
-            return (String) getName.invoke(o);
+            String n = (String) getName.invoke(o);
+            return n != null ? toSimpleEventName(n) : "?";
         } catch (Exception ignored) { }
-        return o.toString();
+        return toSimpleEventName(o.toString());
     }
 
     /**

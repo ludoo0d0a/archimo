@@ -51,15 +51,14 @@ class ModulithExtractorTest {
 
         var orderModule = eventsMap.stream().filter(m -> "Order".equals(m.moduleName())).findFirst().orElseThrow();
         assertThat(orderModule.publishedEvents())
-                .contains("fr.geoking.archimo.sample.ecommerce.order.OrderCreated");
+                .contains("OrderCreated");
         // order listens to catalog and customer events (cross-module)
         assertThat(orderModule.eventsListenedTo())
-                .contains("fr.geoking.archimo.sample.ecommerce.catalog.StockReserved",
-                        "fr.geoking.archimo.sample.ecommerce.customer.AddressUpdated");
+                .contains("StockReserved", "AddressUpdated");
 
         var catalogModule = eventsMap.stream().filter(m -> "Catalog".equals(m.moduleName())).findFirst().orElseThrow();
         assertThat(catalogModule.eventsListenedTo())
-                .contains("fr.geoking.archimo.sample.ecommerce.order.OrderCreated");
+                .contains("OrderCreated");
     }
 
     @Test

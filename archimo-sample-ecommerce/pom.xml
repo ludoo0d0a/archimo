@@ -25,5 +25,11 @@
             <groupId>org.springframework.modulith</groupId>
             <artifactId>spring-modulith-core</artifactId>
         </dependency>
+        <!-- Required for Spring Modulith to discover published events (getPublishedEvents()) -->
+        <dependency>
+            <groupId>org.jmolecules</groupId>
+            <artifactId>jmolecules-events</artifactId>
+            <version>1.2.0</version>
+        </dependency>
     </dependencies>
 </project>

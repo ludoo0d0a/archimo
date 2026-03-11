@@ -1,6 +1,6 @@
 package fr.geoking.archimo;
 
-import fr.geoking.archimo.extract.ModulithExtractor;
+import fr.geoking.archimo.ModulithExtractor;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.ModuleDependency;

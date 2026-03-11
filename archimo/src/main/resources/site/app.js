@@ -1,7 +1,21 @@
 (() => {
   let index = null;
-  let currentLevel = 'all';
   let selectedDiagram = null;
+  let showingSource = false;
+
+  function encodeKroki(str) {
+    if (typeof pako === 'undefined') return null;
+    const data = new TextEncoder().encode(str);
+    const compressed = pako.deflate(data, { level: 9 });
+    const bin = Array.from(compressed);
+    let binary = '';
+    const chunk = 8192;
+    for (let i = 0; i < bin.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bin.slice(i, i + chunk));
+    }
+    const base64 = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_');
+    return base64;
+  }
 
   async function loadIndex() {
     const res = await fetch('site-index.json');
@@ -10,62 +24,97 @@
       mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
     }
     bindUI();
-    renderDiagrams();
+    renderDiagramLists();
     renderSearch('');
+    selectFirstDiagram();
   }
 
   function bindUI() {
-    const searchInput = document.getElementById('searchInput');
-    searchInput.addEventListener('input', (e) => {
+    document.getElementById('searchInput').addEventListener('input', (e) => {
       renderSearch(e.target.value.trim());
     });
+    document.getElementById('viewSourceBtn').addEventListener('click', toggleSource);
+  }
 
-    const filters = document.querySelectorAll('#diagramFilters .chip');
-    filters.forEach(btn => {
-      btn.addEventListener('click', () => {
-        filters.forEach(b => b.classList.remove('chip-active'));
-        btn.classList.add('chip-active');
-        currentLevel = btn.dataset.level;
-        renderDiagrams();
+  function byC4Level(d) {
+    const l = d.c4Level != null ? d.c4Level : (d.level === 'mermaid' ? 0 : 3);
+    return l;
+  }
+
+  function renderDiagramLists() {
+    if (!index || !index.diagrams) return;
+    const lists = {
+      1: document.getElementById('diagramListL1'),
+      2: document.getElementById('diagramListL2'),
+      3: document.getElementById('diagramListL3'),
+      4: document.getElementById('diagramListL4'),
+      0: document.getElementById('diagramListMermaid')
+    };
+    [1, 2, 3, 4, 0].forEach(lvl => { lists[lvl].innerHTML = ''; });
+    const levelHeads = { 1: 'c4Level1', 2: 'c4Level2', 3: 'c4Level3', 4: 'c4Level4', 0: 'c4Mermaid' };
+    index.diagrams
+      .sort((a, b) => {
+        const la = byC4Level(a);
+        const lb = byC4Level(b);
+        if (la !== lb) return la - lb;
+        return (a.navLabel || a.title).localeCompare(b.navLabel || b.title);
+      })
+      .forEach(d => {
+        const lvl = byC4Level(d);
+        const list = lists[lvl];
+        if (!list) return;
+        const li = document.createElement('li');
+        li.className = 'diagram-item';
+        const a = document.createElement('a');
+        a.href = '#';
+        a.textContent = d.navLabel || d.title;
+        a.addEventListener('click', (e) => { e.preventDefault(); selectDiagram(d); });
+        a.dataset.diagramId = d.id;
+        li.appendChild(a);
+        list.appendChild(li);
       });
+    [1, 2, 3, 4, 0].forEach(lvl => {
+      const container = document.getElementById(levelHeads[lvl]);
+      if (container) container.classList.toggle('hidden', lists[lvl].children.length === 0);
     });
   }
 
-  function renderDiagrams() {
-    const container = document.getElementById('diagramList');
-    container.innerHTML = '';
-    if (!index) return;
+  function firstSelectableDiagram() {
+    if (!index || !index.diagrams.length) return null;
+    const l1 = index.diagrams.find(d => byC4Level(d) === 1);
+    if (l1) return l1;
+    return index.diagrams[0];
+  }
 
-    const list = index.diagrams
-      .filter(d => currentLevel === 'all' || d.level === currentLevel)
-      .sort((a, b) => a.title.localeCompare(b.title));
-
-    list.forEach(d => {
-      const li = document.createElement('li');
-      li.className = 'diagram-item';
-      const link = document.createElement('a');
-      link.href = '#';
-      link.textContent = d.title + (d.level !== 'mermaid' ? ' (' + d.level + ')' : '');
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        selectDiagram(d);
-      });
-      li.appendChild(link);
-      container.appendChild(li);
-    });
+  function selectFirstDiagram() {
+    const d = firstSelectableDiagram();
+    if (d) selectDiagram(d);
+    else {
+      document.getElementById('diagramViewerTitle').textContent = 'No diagrams';
+      document.getElementById('diagramViewer').innerHTML = '<p class="no-diagram">No diagrams in this report.</p>';
+    }
   }
 
   function selectDiagram(d) {
     selectedDiagram = d;
-    const section = document.getElementById('diagramViewerSection');
+    showingSource = false;
+    document.querySelectorAll('.diagram-item a').forEach(a => a.classList.remove('selected'));
     const titleEl = document.getElementById('diagramViewerTitle');
     const viewerEl = document.getElementById('diagramViewer');
-    const rawLink = document.getElementById('diagramRawLink');
+    const sourceBlock = document.getElementById('diagramSourceBlock');
+    const sourceText = document.getElementById('diagramSourceText');
+    const viewSourceBtn = document.getElementById('viewSourceBtn');
 
-    section.classList.remove('hidden');
-    titleEl.textContent = d.title;
-    rawLink.href = '../' + d.path;
-    rawLink.textContent = 'Open raw ' + (d.format === 'plantuml' ? 'PlantUML' : 'Mermaid') + ' source';
+    titleEl.textContent = d.navLabel || d.title;
+    const activeLink = document.querySelector('.diagram-item a[data-diagram-id="' + d.id + '"]');
+    if (activeLink) activeLink.classList.add('selected');
+    sourceBlock.classList.add('hidden');
+    if (d.source) {
+      viewSourceBtn.classList.remove('hidden');
+      sourceText.textContent = d.source;
+    } else {
+      viewSourceBtn.classList.add('hidden');
+    }
 
     viewerEl.innerHTML = '';
     if (!d.source) {
@@ -76,15 +125,32 @@
     if (d.format === 'mermaid') {
       renderMermaid(viewerEl, d.source);
     } else if (d.format === 'plantuml') {
-      renderPlantUml(viewerEl, d.source);
+      renderPlantUmlKroki(viewerEl, d.source);
     } else {
       viewerEl.textContent = 'Unknown diagram format.';
     }
   }
 
+  function toggleSource() {
+    if (!selectedDiagram || !selectedDiagram.source) return;
+    showingSource = !showingSource;
+    const sourceBlock = document.getElementById('diagramSourceBlock');
+    const viewSourceBtn = document.getElementById('viewSourceBtn');
+    const viewerEl = document.getElementById('diagramViewer');
+    if (showingSource) {
+      sourceBlock.classList.remove('hidden');
+      viewSourceBtn.textContent = 'Hide source';
+      viewerEl.classList.add('hidden');
+    } else {
+      sourceBlock.classList.add('hidden');
+      viewSourceBtn.textContent = 'View source';
+      viewerEl.classList.remove('hidden');
+    }
+  }
+
   function renderMermaid(container, source) {
     if (typeof mermaid === 'undefined') {
-      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">Mermaid.js not loaded. Showing raw source.</p>';
+      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre>';
       return;
     }
     const pre = document.createElement('pre');
@@ -92,27 +158,22 @@
     pre.textContent = source;
     container.appendChild(pre);
     mermaid.run({ nodes: [pre], suppressErrors: true }).catch(() => {
-      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">Mermaid render failed. Showing raw source.</p>';
+      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre>';
     });
   }
 
-  function renderPlantUml(container, source) {
-    let encoded;
-    try {
-      encoded = typeof plantumlEncoder !== 'undefined' ? plantumlEncoder.encode(source) : null;
-    } catch (e) {
-      encoded = null;
-    }
+  function renderPlantUmlKroki(container, source) {
+    const encoded = encodeKroki(source);
     if (!encoded) {
-      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">PlantUML encoder not available. Showing raw source.</p>';
+      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">Kroki encoding not available. Showing source.</p>';
       return;
     }
     const img = document.createElement('img');
-    img.alt = selectedDiagram ? selectedDiagram.title : 'Diagram';
+    img.alt = selectedDiagram ? (selectedDiagram.navLabel || selectedDiagram.title) : 'Diagram';
     img.loading = 'lazy';
-    img.src = 'https://www.plantuml.com/plantuml/svg/' + encoded;
+    img.src = 'https://kroki.io/plantuml/svg/' + encoded;
     img.onerror = () => {
-      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">PlantUML server unreachable or invalid diagram. Showing raw source.</p>';
+      container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">Could not load diagram image. Showing source.</p>';
     };
     container.appendChild(img);
   }
@@ -128,44 +189,29 @@
     const classesEl = document.getElementById('classesResults');
     const eventsEl = document.getElementById('eventsResults');
     const summaryEl = document.getElementById('resultsSummary');
-
     modulesEl.innerHTML = '';
     classesEl.innerHTML = '';
     eventsEl.innerHTML = '';
-
     if (!index) return;
-
     const q = term.toLowerCase();
     const match = (s) => q === '' || (s && s.toLowerCase().includes(q));
-
-    const modules = index.modules.filter(m =>
-      match(m.name) || match(m.basePackage)
-    );
-    const classes = index.classes.filter(c =>
-      match(c.className) || match(c.module)
-    );
+    const modules = index.modules.filter(m => match(m.name) || match(m.basePackage));
+    const classes = index.classes.filter(c => match(c.className) || match(c.module));
     const events = index.events.filter(e =>
-      match(e.eventType) ||
-      match(e.publisherModule) ||
-      (e.listenerModules || []).some(l => match(l))
-    );
-
+      match(e.eventType) || match(e.publisherModule) || (e.listenerModules || []).some(l => match(l)));
     summaryEl.textContent = q
-      ? `Found ${modules.length} modules, ${classes.length} classes/components, ${events.length} events for "${term}"`
-      : 'Type to search modules, classes/components and events.';
-
+      ? `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events for "${term}"`
+      : 'Type to search modules, classes and events.';
     modules.forEach(m => {
       const li = document.createElement('li');
       li.textContent = `${m.name}  (${m.basePackage})`;
       modulesEl.appendChild(li);
     });
-
     classes.forEach(c => {
       const li = document.createElement('li');
       li.textContent = `${c.className}  [${c.kind}] in ${c.module}`;
       classesEl.appendChild(li);
     });
-
     events.forEach(e => {
       const li = document.createElement('li');
       const listeners = (e.listenerModules || []).join(', ') || '—';
@@ -176,4 +222,3 @@
 
   window.addEventListener('DOMContentLoaded', loadIndex);
 })();
-

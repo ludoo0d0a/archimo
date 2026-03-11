@@ -84,26 +84,53 @@ main {
   border-color: #111827;
 }
 
+.nav-level {
+  margin-bottom: 0.75rem;
+}
+
+.nav-level.hidden {
+  display: none;
+}
+
+.nav-level-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #4b5563;
+}
+
 .diagram-list {
   list-style: none;
   padding: 0;
   margin: 0;
-  max-height: 70vh;
+  max-height: 50vh;
   overflow: auto;
   font-size: 0.8rem;
 }
 
 .diagram-item {
-  margin: 0 0 0.2rem;
+  margin: 0 0 0.15rem;
 }
 
 .diagram-item a {
   color: #1f2933;
   text-decoration: none;
+  display: block;
+  padding: 0.2rem 0;
+  border-radius: 0.25rem;
 }
 
 .diagram-item a:hover {
-  text-decoration: underline;
+  background: #f3f4f6;
+  text-decoration: none;
+}
+
+.diagram-item a.selected {
+  background: #eef2ff;
+  color: #4338ca;
+  font-weight: 500;
 }
 
 .content {
@@ -123,11 +150,39 @@ main {
   border-bottom: 1px solid #e5e7eb;
 }
 
+.diagram-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
 .diagram-viewer-title {
-  margin: 0 0 0.5rem;
-  font-size: 0.95rem;
+  margin: 0;
+  font-size: 1rem;
   font-weight: 600;
   color: #374151;
+}
+
+.view-source-btn {
+  flex-shrink: 0;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: #f9fafb;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.view-source-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.view-source-btn.hidden {
+  display: none;
 }
 
 .diagram-viewer {
@@ -135,7 +190,11 @@ main {
   border-radius: 0.5rem;
   padding: 1rem;
   overflow: auto;
-  max-height: 75vh;
+  max-height: 70vh;
+}
+
+.diagram-viewer.hidden {
+  display: none;
 }
 
 .diagram-viewer img {
@@ -148,25 +207,40 @@ main {
   margin: 0;
 }
 
-.diagram-viewer-raw-link {
-  margin: 0.4rem 0 0;
-  font-size: 0.8rem;
+.no-diagram {
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin: 0;
 }
 
-.diagram-viewer-raw-link a {
-  color: #4f46e5;
-  text-decoration: none;
+.diagram-source-block {
+  margin-top: 0.5rem;
+  background: #1f2937;
+  color: #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  max-height: 50vh;
+  overflow: auto;
 }
 
-.diagram-viewer-raw-link a:hover {
-  text-decoration: underline;
+.diagram-source-block.hidden {
+  display: none;
 }
 
 .diagram-source {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   white-space: pre-wrap;
   word-break: break-all;
+  font-family: ui-monospace, monospace;
+}
+
+.search-section-title {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
 }
 
 .diagram-fallback {

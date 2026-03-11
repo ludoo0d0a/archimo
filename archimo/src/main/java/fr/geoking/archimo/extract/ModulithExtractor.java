@@ -215,6 +215,7 @@ public final class ModulithExtractor {
         List<Map<String, Object>> diagrams = new ArrayList<>();
 
         // PlantUML files (C4 from Spring Modulith Documenter)
+        // C4 levels: 1 = System context (overview), 2 = Container, 3 = Component (per-module), 4 = Code
         try (var paths = Files.walk(outputDir, 5)) {
             paths.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".puml"))
                     .forEach(p -> {
@@ -222,16 +223,40 @@ public final class ModulithExtractor {
                             String relative = outputDir.relativize(p).toString().replace('\\', '/');
                             String fileName = p.getFileName().toString();
                             String id = fileName.substring(0, fileName.length() - ".puml".length());
-                            String level = fileName.toLowerCase().contains("modules") ? "system" : "component";
-                            String category = level.equals("system") ? "overview" : "module";
                             String source = Files.readString(p);
-
+                            int c4Level;
+                            String level;
+                            String category;
+                            String navLabel;
+                            if ("components".equals(id) || fileName.toLowerCase().contains("modules") || fileName.toLowerCase().contains("context")) {
+                                c4Level = 1;
+                                level = "system";
+                                category = "overview";
+                                navLabel = "System context";
+                            } else if (fileName.toLowerCase().contains("container")) {
+                                c4Level = 2;
+                                level = "container";
+                                category = "container";
+                                navLabel = "Containers";
+                            } else if (id.startsWith("module-")) {
+                                c4Level = 3;
+                                level = "component";
+                                category = "module";
+                                navLabel = id.replace("module-", "").replace(".", " / ");
+                            } else {
+                                c4Level = 3;
+                                level = "component";
+                                category = "module";
+                                navLabel = id;
+                            }
                             Map<String, Object> entry = new LinkedHashMap<>();
                             entry.put("id", id);
                             entry.put("title", fileName);
                             entry.put("path", relative);
                             entry.put("level", level);
                             entry.put("category", category);
+                            entry.put("c4Level", c4Level);
+                            entry.put("navLabel", navLabel);
                             entry.put("format", "plantuml");
                             entry.put("source", source);
                             diagrams.add(entry);
@@ -261,6 +286,8 @@ public final class ModulithExtractor {
                                 entry.put("path", relative);
                                 entry.put("level", level);
                                 entry.put("category", category);
+                                entry.put("c4Level", 0);  // Mermaid: event flows, sequences, dependencies
+                                entry.put("navLabel", id.replaceAll("-", " "));
                                 entry.put("format", "mermaid");
                                 entry.put("source", source);
                                 diagrams.add(entry);

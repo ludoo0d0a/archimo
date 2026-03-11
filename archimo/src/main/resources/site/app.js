@@ -17,33 +17,46 @@
     return base64;
   }
 
+  function showError(msg) {
+    const titleEl = document.getElementById('diagramViewerTitle');
+    const viewerEl = document.getElementById('diagramViewer');
+    if (titleEl) titleEl.textContent = 'Error';
+    if (viewerEl) viewerEl.innerHTML = '<p class="no-diagram">' + escapeHtml(msg) + '</p>';
+  }
+
   async function loadIndex() {
     try {
-      const res = await fetch('site-index.json');
-      if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
-      index = await res.json();
-    } catch (e) {
-      console.error('Failed to load site-index.json', e);
-      index = { diagrams: [], modules: [], classes: [], events: [] };
+      let res;
+      try {
+        res = await fetch('site-index.json');
+        if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+        index = await res.json();
+      } catch (e) {
+        console.error('Failed to load site-index.json', e);
+        index = { diagrams: [], modules: [], classes: [], events: [] };
+      }
+      if (!index.diagrams) index.diagrams = [];
+      if (!index.modules) index.modules = [];
+      if (!index.classes) index.classes = [];
+      if (!index.events) index.events = [];
+      if (typeof mermaid !== 'undefined') {
+        mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+      }
+      bindUI();
+      renderDiagramLists();
+      renderSearch('');
+      selectFirstDiagram();
+    } catch (err) {
+      console.error('Report init error', err);
+      showError('Could not initialize report: ' + (err.message || String(err)));
     }
-    if (!index.diagrams) index.diagrams = [];
-    if (!index.modules) index.modules = [];
-    if (!index.classes) index.classes = [];
-    if (!index.events) index.events = [];
-    if (typeof mermaid !== 'undefined') {
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
-    }
-    bindUI();
-    renderDiagramLists();
-    renderSearch('');
-    selectFirstDiagram();
   }
 
   function bindUI() {
-    document.getElementById('searchInput').addEventListener('input', (e) => {
-      renderSearch(e.target.value.trim());
-    });
-    document.getElementById('viewSourceBtn').addEventListener('click', toggleSource);
+    const searchInput = document.getElementById('searchInput');
+    const viewSourceBtn = document.getElementById('viewSourceBtn');
+    if (searchInput) searchInput.addEventListener('input', (e) => { renderSearch(e.target.value.trim()); });
+    if (viewSourceBtn) viewSourceBtn.addEventListener('click', toggleSource);
   }
 
   function byC4Level(d) {
@@ -100,13 +113,16 @@
 
   function selectFirstDiagram() {
     const d = firstSelectableDiagram();
-    if (d) selectDiagram(d);
-    else {
-      document.getElementById('diagramViewerTitle').textContent = 'No diagrams';
+    const titleEl = document.getElementById('diagramViewerTitle');
+    const viewerEl = document.getElementById('diagramViewer');
+    if (d) {
+      selectDiagram(d);
+    } else {
+      if (titleEl) titleEl.textContent = 'No diagrams';
       const msg = (index && index.diagrams && index.diagrams.length === 0)
         ? 'No diagrams in this report. Ensure the report was generated with diagram output (PlantUML and Mermaid).'
         : 'Report data could not be loaded. If you opened this page from the file system (file://), serve it over HTTP (e.g. run a local server or use GitHub Pages).';
-      document.getElementById('diagramViewer').innerHTML = '<p class="no-diagram">' + msg + '</p>';
+      if (viewerEl) viewerEl.innerHTML = '<p class="no-diagram">' + escapeHtml(msg) + '</p>';
     }
   }
 
@@ -119,16 +135,20 @@
     const sourceBlock = document.getElementById('diagramSourceBlock');
     const sourceText = document.getElementById('diagramSourceText');
     const viewSourceBtn = document.getElementById('viewSourceBtn');
+    if (!titleEl || !viewerEl) return;
 
     titleEl.textContent = d.navLabel || d.title;
-    const activeLink = document.querySelector('.diagram-item a[data-diagram-id="' + d.id + '"]');
+    const diagramId = (d.id != null) ? String(d.id) : '';
+    const activeLink = diagramId
+      ? Array.from(document.querySelectorAll('.diagram-item a')).find(a => a.dataset.diagramId === diagramId)
+      : null;
     if (activeLink) activeLink.classList.add('selected');
-    sourceBlock.classList.add('hidden');
+    if (sourceBlock) sourceBlock.classList.add('hidden');
     if (d.source) {
-      viewSourceBtn.classList.remove('hidden');
-      sourceText.textContent = d.source;
+      if (viewSourceBtn) viewSourceBtn.classList.remove('hidden');
+      if (sourceText) sourceText.textContent = d.source;
     } else {
-      viewSourceBtn.classList.add('hidden');
+      if (viewSourceBtn) viewSourceBtn.classList.add('hidden');
     }
 
     viewerEl.innerHTML = '';
@@ -204,6 +224,7 @@
     const classesEl = document.getElementById('classesResults');
     const eventsEl = document.getElementById('eventsResults');
     const summaryEl = document.getElementById('resultsSummary');
+    if (!modulesEl || !classesEl || !eventsEl || !summaryEl) return;
     modulesEl.innerHTML = '';
     classesEl.innerHTML = '';
     eventsEl.innerHTML = '';
@@ -235,5 +256,9 @@
     });
   }
 
-  window.addEventListener('DOMContentLoaded', loadIndex);
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', loadIndex);
+  } else {
+    loadIndex();
+  }
 })();

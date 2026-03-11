@@ -18,8 +18,18 @@
   }
 
   async function loadIndex() {
-    const res = await fetch('site-index.json');
-    index = await res.json();
+    try {
+      const res = await fetch('site-index.json');
+      if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+      index = await res.json();
+    } catch (e) {
+      console.error('Failed to load site-index.json', e);
+      index = { diagrams: [], modules: [], classes: [], events: [] };
+    }
+    if (!index.diagrams) index.diagrams = [];
+    if (!index.modules) index.modules = [];
+    if (!index.classes) index.classes = [];
+    if (!index.events) index.events = [];
     if (typeof mermaid !== 'undefined') {
       mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
     }
@@ -37,12 +47,12 @@
   }
 
   function byC4Level(d) {
-    const l = d.c4Level != null ? d.c4Level : (d.level === 'mermaid' ? 0 : 3);
-    return l;
+    if (d.c4Level != null) return Number(d.c4Level);
+    return d.level === 'mermaid' ? 0 : 3;
   }
 
   function renderDiagramLists() {
-    if (!index || !index.diagrams) return;
+    const diagrams = (index && index.diagrams) ? index.diagrams : [];
     const lists = {
       1: document.getElementById('diagramListL1'),
       2: document.getElementById('diagramListL2'),
@@ -50,14 +60,16 @@
       4: document.getElementById('diagramListL4'),
       0: document.getElementById('diagramListMermaid')
     };
-    [1, 2, 3, 4, 0].forEach(lvl => { lists[lvl].innerHTML = ''; });
     const levelHeads = { 1: 'c4Level1', 2: 'c4Level2', 3: 'c4Level3', 4: 'c4Level4', 0: 'c4Mermaid' };
-    index.diagrams
+    [1, 2, 3, 4, 0].forEach(lvl => {
+      if (lists[lvl]) lists[lvl].innerHTML = '';
+    });
+    diagrams
       .sort((a, b) => {
         const la = byC4Level(a);
         const lb = byC4Level(b);
         if (la !== lb) return la - lb;
-        return (a.navLabel || a.title).localeCompare(b.navLabel || b.title);
+        return String(a.navLabel || a.title || '').localeCompare(String(b.navLabel || b.title || ''));
       })
       .forEach(d => {
         const lvl = byC4Level(d);
@@ -67,15 +79,15 @@
         li.className = 'diagram-item';
         const a = document.createElement('a');
         a.href = '#';
-        a.textContent = d.navLabel || d.title;
+        a.textContent = d.navLabel || d.title || d.id || 'Diagram';
         a.addEventListener('click', (e) => { e.preventDefault(); selectDiagram(d); });
-        a.dataset.diagramId = d.id;
+        a.dataset.diagramId = String(d.id || '');
         li.appendChild(a);
         list.appendChild(li);
       });
     [1, 2, 3, 4, 0].forEach(lvl => {
       const container = document.getElementById(levelHeads[lvl]);
-      if (container) container.classList.toggle('hidden', lists[lvl].children.length === 0);
+      if (container) container.classList.toggle('hidden', !lists[lvl] || lists[lvl].children.length === 0);
     });
   }
 
@@ -91,7 +103,10 @@
     if (d) selectDiagram(d);
     else {
       document.getElementById('diagramViewerTitle').textContent = 'No diagrams';
-      document.getElementById('diagramViewer').innerHTML = '<p class="no-diagram">No diagrams in this report.</p>';
+      const msg = (index && index.diagrams && index.diagrams.length === 0)
+        ? 'No diagrams in this report. Ensure the report was generated with diagram output (PlantUML and Mermaid).'
+        : 'Report data could not be loaded. If you opened this page from the file system (file://), serve it over HTTP (e.g. run a local server or use GitHub Pages).';
+      document.getElementById('diagramViewer').innerHTML = '<p class="no-diagram">' + msg + '</p>';
     }
   }
 

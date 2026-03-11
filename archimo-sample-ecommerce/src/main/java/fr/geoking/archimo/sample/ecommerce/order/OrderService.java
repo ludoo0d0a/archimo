@@ -37,6 +37,22 @@ public class OrderService {
         events.publishEvent(new OrderCancelled(orderId, reason));
     }
 
+    public void handle(PlaceOrderCommand cmd) {
+        placeOrder(cmd.productId(), cmd.quantity());
+    }
+
+    public void handle(PayOrderCommand cmd) {
+        payOrder(cmd.orderId(), cmd.paymentId(), cmd.amount());
+    }
+
+    public void handle(ShipOrderCommand cmd) {
+        shipOrder(cmd.orderId(), cmd.trackingNumber());
+    }
+
+    public void handle(CancelOrderCommand cmd) {
+        cancelOrder(cmd.orderId(), cmd.reason());
+    }
+
     @EventListener
     public void onStockReserved(StockReserved event) {
         // Confirm reservation (cross-module: catalog → order)

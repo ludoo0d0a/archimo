@@ -34,6 +34,14 @@ public class CustomerService {
         events.publishEvent(new CustomerPreferred(customerId, key, value));
     }
 
+    public void handle(RegisterCustomerCommand cmd) {
+        register(cmd.customerId(), cmd.email());
+    }
+
+    public void handle(UpdateAddressCommand cmd) {
+        updateAddress(cmd.customerId(), cmd.addressId(), cmd.newAddress());
+    }
+
     @EventListener
     public void onOrderShipped(OrderShipped event) {
         // Notify customer (cross-module: order → customer)

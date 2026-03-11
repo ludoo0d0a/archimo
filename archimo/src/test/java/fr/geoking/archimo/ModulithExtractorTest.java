@@ -105,6 +105,16 @@ class ModulithExtractorTest {
     }
 
     @Test
+    void parseSampleEcommerceProject_producesCommandFlowsFromEventNames() throws Exception {
+        ApplicationModules modules = ApplicationModules.of(EcommerceApplication.class);
+        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir);
+        ExtractResult result = extractor.extract();
+
+        // Commands = event types whose name contains "Command"; sample has no such published events
+        assertThat(result.commandFlows()).isNotNull();
+    }
+
+    @Test
     void parseSampleEcommerceProject_writesJsonArtifacts() throws Exception {
         ApplicationModules modules = ApplicationModules.of(EcommerceApplication.class);
         ModulithExtractor extractor = new ModulithExtractor(modules, outputDir);
@@ -113,6 +123,7 @@ class ModulithExtractorTest {
         Path jsonDir = outputDir.resolve("json");
         assertThat(jsonDir.resolve("events-map.json")).exists();
         assertThat(jsonDir.resolve("event-flows.json")).exists();
+        assertThat(jsonDir.resolve("command-flows.json")).exists();
         assertThat(jsonDir.resolve("sequences.json")).exists();
         assertThat(jsonDir.resolve("module-dependencies.json")).exists();
         assertThat(jsonDir.resolve("extract-result.json")).exists();

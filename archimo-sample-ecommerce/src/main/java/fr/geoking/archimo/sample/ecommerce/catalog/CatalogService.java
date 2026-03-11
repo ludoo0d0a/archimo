@@ -48,4 +48,13 @@ public class CatalogService {
     public void updatePrice(String productId, double oldPrice, double newPrice) {
         events.publishEvent(new PriceUpdated(productId, oldPrice, newPrice));
     }
+
+    public void handle(CreateProductCommand cmd) {
+        createProduct(cmd.productId(), cmd.name(), cmd.price());
+    }
+
+    public void handle(ReserveStockCommand cmd) {
+        // In a real app this would reserve stock; we publish StockReserved for order flow
+        events.publishEvent(new StockReserved(cmd.orderId(), cmd.productId(), cmd.quantity()));
+    }
 }

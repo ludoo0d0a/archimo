@@ -1,5 +1,6 @@
 package fr.geoking.archimo;
 
+import fr.geoking.archimo.extract.model.CommandFlow;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.ModuleDependency;
@@ -49,13 +50,14 @@ public final class ModulithExtractor {
     public ExtractResult extract() throws IOException {
         Files.createDirectories(outputDir);
 
-        // 1. Events map, flows, module dependencies
+        // 1. Events map, flows, sequences, module dependencies, command flows
         List<ModuleEvents> eventsMap = buildEventsMap();
         List<EventFlow> flows = buildEventFlows();
         List<SequenceFlow> sequences = buildSequences();
         List<ModuleDependency> moduleDependencies = buildModuleDependencies();
+        List<CommandFlow> commandFlows = buildCommandFlowsFromEventFlows(flows);
 
-        ExtractResult result = new ExtractResult(eventsMap, flows, sequences, moduleDependencies);
+        ExtractResult result = new ExtractResult(eventsMap, flows, sequences, moduleDependencies, commandFlows);
 
         // 2. Delegate diagram outputs to pluggable writers (PlantUML, Mermaid, …)
         for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
@@ -63,13 +65,14 @@ public final class ModulithExtractor {
         }
 
         // 3. Generate static website (architecture-as-code navigation & search)
-        writeSite(eventsMap, flows, moduleDependencies);
+        writeSite(eventsMap, flows, commandFlows, moduleDependencies);
 
         // 4. Write JSON artifacts last (use absolute path so output location is unambiguous)
         Path jsonDir = outputDir.toAbsolutePath().resolve("json");
         Files.createDirectories(jsonDir);
         objectMapper.writeValue(jsonDir.resolve("events-map.json").toFile(), eventsMap);
         objectMapper.writeValue(jsonDir.resolve("event-flows.json").toFile(), flows);
+        objectMapper.writeValue(jsonDir.resolve("command-flows.json").toFile(), commandFlows);
         objectMapper.writeValue(jsonDir.resolve("sequences.json").toFile(), sequences);
         objectMapper.writeValue(jsonDir.resolve("module-dependencies.json").toFile(), moduleDependencies);
         objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
@@ -133,12 +136,28 @@ public final class ModulithExtractor {
         return list;
     }
 
+    /** Commands = event flows whose event type name contains "Command". */
+    private List<CommandFlow> buildCommandFlowsFromEventFlows(List<EventFlow> flows) {
+        List<CommandFlow> list = new ArrayList<>();
+        for (EventFlow f : flows) {
+            if (!f.eventType().contains("Command")) {
+                continue;
+            }
+            String target = f.listenerModules().isEmpty()
+                    ? f.publisherModule()
+                    : f.listenerModules().get(0);
+            list.add(new CommandFlow(f.eventType(), target));
+        }
+        return list;
+    }
+
     /**
      * Generate a small static website under {@code outputDir/site} that lets you
      * browse C4 diagrams and search modules, classes and events.
      */
     private void writeSite(List<ModuleEvents> eventsMap,
                            List<EventFlow> flows,
+                           List<CommandFlow> commandFlows,
                            List<ModuleDependency> moduleDependencies) throws IOException {
 
         Path siteDir = outputDir.resolve("site");
@@ -152,10 +171,11 @@ public final class ModulithExtractor {
         // Build diagrams index (based on generated *.puml files)
         List<Map<String, Object>> diagrams = buildDiagramsIndex();
 
-        // Build search index: modules, classes, events
+        // Build search index: modules, classes, events, commands
         List<Map<String, Object>> modulesIndex = new ArrayList<>();
         List<Map<String, Object>> classesIndex = new ArrayList<>();
         List<Map<String, Object>> eventsIndex = new ArrayList<>();
+        List<Map<String, Object>> commandsIndex = new ArrayList<>();
 
         // Modules and classes
         for (ApplicationModule module : modules) {
@@ -190,12 +210,21 @@ public final class ModulithExtractor {
             eventsIndex.add(ev);
         }
 
+        // Commands (command type -> target module)
+        for (CommandFlow cf : commandFlows) {
+            Map<String, Object> cmd = new LinkedHashMap<>();
+            cmd.put("commandType", cf.commandType());
+            cmd.put("targetModule", cf.targetModule());
+            commandsIndex.add(cmd);
+        }
+
         // Site index JSON consumed by the SPA
         Map<String, Object> siteIndex = new LinkedHashMap<>();
         siteIndex.put("diagrams", diagrams);
         siteIndex.put("modules", modulesIndex);
         siteIndex.put("classes", classesIndex);
         siteIndex.put("events", eventsIndex);
+        siteIndex.put("commands", commandsIndex);
         siteIndex.put("moduleDependencies", moduleDependencies);
 
         objectMapper.writeValue(siteDir.resolve("site-index.json").toFile(), siteIndex);

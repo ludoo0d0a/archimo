@@ -8,10 +8,12 @@ import org.springframework.modulith.core.ApplicationModules;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Writes Mermaid diagrams for event flows, sequences and module dependencies.
+ * Events and commands use different color and shape; command = event type name containing "Command".
  */
 public final class MermaidOutput implements DiagramOutput {
 
@@ -19,24 +21,43 @@ public final class MermaidOutput implements DiagramOutput {
     public void write(ApplicationModules modules, Path outputDir, ExtractResult result) throws IOException {
         List<EventFlow> flows = result.flows();
         List<ModuleDependency> deps = result.moduleDependencies();
-        writeMermaidEventFlows(outputDir, flows);
+        writeMermaidEventAndCommandFlows(outputDir, flows);
         writeMermaidSequences(outputDir, flows);
         writeMermaidModuleDependencies(outputDir, deps);
     }
 
-    private void writeMermaidEventFlows(Path outputDir, List<EventFlow> flows) throws IOException {
+    private void writeMermaidEventAndCommandFlows(Path outputDir, List<EventFlow> flows) throws IOException {
         Path mermaidDir = outputDir.resolve("mermaid");
         Files.createDirectories(mermaidDir);
         StringBuilder m = new StringBuilder();
-        m.append("%% Event flows: publisher module -> event -> listener modules\n");
+        m.append("%% Events and commands (command = name contains 'Command'); different color and shape\n");
         m.append("flowchart LR\n");
+        List<String> eventNodeIds = new ArrayList<>();
+        List<String> commandNodeIds = new ArrayList<>();
         for (EventFlow f : flows) {
             String pub = sanitizeId(f.publisherModule());
-            String ev = sanitizeId(f.eventType());
+            String evId = sanitizeId(f.eventType());
+            boolean isCommand = f.eventType().contains("Command");
+            if (isCommand) {
+                if (!commandNodeIds.contains(evId)) commandNodeIds.add(evId);
+            } else {
+                if (!eventNodeIds.contains(evId)) eventNodeIds.add(evId);
+            }
             for (String listener : f.listenerModules()) {
                 String lis = sanitizeId(listener);
-                m.append("  ").append(pub).append(" -->|").append(ev).append("| ").append(lis).append("\n");
+                m.append("  ").append(pub).append(" --> ").append(evId).append(" --> ").append(lis).append("\n");
             }
+            if (f.listenerModules().isEmpty()) {
+                m.append("  ").append(pub).append(" --> ").append(evId).append("\n");
+            }
+        }
+        m.append("  classDef eventNode fill:#fff3e0,stroke:#e65100,stroke-width:2px,rx:8,ry:8\n");
+        m.append("  classDef commandNode fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,rx:20,ry:20\n");
+        if (!eventNodeIds.isEmpty()) {
+            m.append("  class ").append(String.join(",", eventNodeIds)).append(" eventNode\n");
+        }
+        if (!commandNodeIds.isEmpty()) {
+            m.append("  class ").append(String.join(",", commandNodeIds)).append(" commandNode\n");
         }
         Files.writeString(mermaidDir.resolve("event-flows.mmd"), m.toString());
     }

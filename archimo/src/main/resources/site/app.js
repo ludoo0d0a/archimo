@@ -33,12 +33,13 @@
         index = await res.json();
       } catch (e) {
         console.error('Failed to load site-index.json', e);
-        index = { diagrams: [], modules: [], classes: [], events: [] };
+        index = { diagrams: [], modules: [], classes: [], events: [], commands: [] };
       }
       if (!index.diagrams) index.diagrams = [];
       if (!index.modules) index.modules = [];
       if (!index.classes) index.classes = [];
       if (!index.events) index.events = [];
+      if (!index.commands) index.commands = [];
       if (typeof mermaid !== 'undefined') {
         mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
       }
@@ -223,11 +224,13 @@
     const modulesEl = document.getElementById('modulesResults');
     const classesEl = document.getElementById('classesResults');
     const eventsEl = document.getElementById('eventsResults');
+    const commandsEl = document.getElementById('commandsResults');
     const summaryEl = document.getElementById('resultsSummary');
-    if (!modulesEl || !classesEl || !eventsEl || !summaryEl) return;
+    if (!modulesEl || !classesEl || !eventsEl || !commandsEl || !summaryEl) return;
     modulesEl.innerHTML = '';
     classesEl.innerHTML = '';
     eventsEl.innerHTML = '';
+    commandsEl.innerHTML = '';
     if (!index) return;
     const q = term.toLowerCase();
     const match = (s) => q === '' || (s && s.toLowerCase().includes(q));
@@ -235,9 +238,10 @@
     const classes = index.classes.filter(c => match(c.className) || match(c.module));
     const events = index.events.filter(e =>
       match(e.eventType) || match(e.publisherModule) || (e.listenerModules || []).some(l => match(l)));
+    const commands = (index.commands || []).filter(c => match(c.commandType) || match(c.targetModule));
     summaryEl.textContent = q
-      ? `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events for "${term}"`
-      : 'Type to search modules, classes and events.';
+      ? `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${commands.length} commands for "${term}"`
+      : 'Type to search modules, classes, events and commands.';
     modules.forEach(m => {
       const li = document.createElement('li');
       li.textContent = `${m.name}  (${m.basePackage})`;
@@ -253,6 +257,11 @@
       const listeners = (e.listenerModules || []).join(', ') || '—';
       li.textContent = `${e.eventType}  — publisher: ${e.publisherModule}, listeners: ${listeners}`;
       eventsEl.appendChild(li);
+    });
+    commands.forEach(c => {
+      const li = document.createElement('li');
+      li.textContent = `${c.commandType}  → ${c.targetModule}`;
+      commandsEl.appendChild(li);
     });
   }
 

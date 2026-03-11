@@ -183,7 +183,7 @@ The **website** (`site/index.html`) is a single-page app that loads `site-index.
 
 ### 5.2 GitHub Actions: Publish site to GitHub Pages
 
-This project’s workflow (`.github/workflows/build.yml`) publishes the report on every push to `main`/`master` using the official Pages actions:
+This project’s workflow (`.github/workflows/build.yml`) publishes the report on every push to `main` using the official Pages actions:
 
 ```yaml
 permissions:
@@ -199,7 +199,7 @@ jobs:
         path: target/modulith-docs/site
 
   deploy:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment: github_pages

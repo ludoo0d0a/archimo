@@ -1,10 +1,12 @@
+# Build, test, generate architecture report, and deploy the report to GitHub Pages.
+# One-time setup: repo Settings → Pages → Source = "GitHub Actions". See docs/GITHUB_PAGES_SETUP.md
 name: Build and report
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -50,7 +52,7 @@ jobs:
           path: target/modulith-docs/site
 
   deploy:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment: github_pages

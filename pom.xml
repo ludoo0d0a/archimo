@@ -10,6 +10,13 @@
     <packaging>jar</packaging>
     <name>Archimo</name>
     <description>Extract C4 diagrams, flows, sequences and event map from Spring Modulith Maven projects</description>
+    <url>https://github.com/ludoo0d0a/archimo</url>
+
+    <scm>
+        <connection>scm:git:https://github.com/ludoo0d0a/archimo.git</connection>
+        <developerConnection>scm:git:https://github.com/ludoo0d0a/archimo.git</developerConnection>
+        <url>https://github.com/ludoo0d0a/archimo</url>
+    </scm>
 
     <properties>
         <java.version>17</java.version>

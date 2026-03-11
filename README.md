@@ -1,5 +1,7 @@
 # Archimo
 
+**Repository:** [https://github.com/ludoo0d0a/archimo](https://github.com/ludoo0d0a/archimo)
+
 Java 17 CLI and test integration to parse **Spring Modulith** applications and extract:
 
 - **C4 diagrams (PlantUML)** – all modules and per-module component diagrams  
@@ -38,9 +40,10 @@ The workflow in `.github/workflows/build.yml`:
 
 - Builds and runs tests (report is generated from the sample app via `-Darchimo.generateReport=true`)
 - Uploads **archimo-jar** and **modulith-docs** as artifacts
-- **Publishes the HTML report to GitHub Pages** on every push to `main`/`master`
+- **Publishes the HTML report to GitHub Pages** on every push to `main`
 
-Enable Pages in your repo: **Settings → Pages → Source: GitHub Actions**. The report will be available at `https://<owner>.github.io/<repo>/`.
+**One-time repo setup:** **Settings → Pages → Build and deployment → Source: GitHub Actions.**  
+See **[docs/GITHUB_PAGES_SETUP.md](docs/GITHUB_PAGES_SETUP.md)** for step-by-step instructions. The report will then be at [https://ludoo0d0a.github.io/archimo/](https://ludoo0d0a.github.io/archimo/).
 
 ## Requirements
 

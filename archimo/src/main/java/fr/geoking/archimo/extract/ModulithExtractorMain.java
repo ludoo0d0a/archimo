@@ -63,13 +63,23 @@ public final class ModulithExtractorMain {
             String cp = classes.toAbsolutePath() + java.io.File.pathSeparator + depJars + java.io.File.pathSeparator + getCurrentJarPath();
 
             String outDir = config.outputDir != null ? config.outputDir.toPath().toAbsolutePath().toString() : target.resolve("modulith-docs").toAbsolutePath().toString();
-            ProcessBuilder pb = new ProcessBuilder(
-                    getJavaExecutable(),
-                    "-cp", cp,
-                    ModulithExtractorMain.class.getName(),
-                    "--app-class=" + appClass,
-                    "--output-dir=" + outDir
-            );
+
+            // Use a Java argument file to avoid very long command lines on Windows (CreateProcess error=206)
+            List<String> javaArgs = new ArrayList<>();
+            javaArgs.add("-cp");
+            javaArgs.add(cp);
+            javaArgs.add(ModulithExtractorMain.class.getName());
+            javaArgs.add("--app-class=" + appClass);
+            javaArgs.add("--output-dir=" + outDir);
+
+            Path argsFile = Files.createTempFile(target, "archimo-java-args-", ".txt");
+            Files.write(argsFile, javaArgs);
+
+            List<String> cmd = new ArrayList<>();
+            cmd.add(getJavaExecutable());
+            cmd.add("@" + argsFile.toAbsolutePath());
+
+            ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.inheritIO();
             pb.directory(projectDir.toFile());
             int exit = pb.start().waitFor();
@@ -93,12 +103,21 @@ public final class ModulithExtractorMain {
 
     private static int runMaven(Path projectDir, String... goals) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
-        cmd.add("mvn");
+        cmd.add(getMavenCommand(projectDir));
         for (String g : goals) cmd.add(g);
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(projectDir.toFile());
         pb.inheritIO();
         return pb.start().waitFor();
+    }
+
+    private static String getMavenCommand(Path projectDir) {
+        boolean windows = System.getProperty("os.name").toLowerCase().contains("win");
+        Path wrapper = projectDir.resolve(windows ? "mvnw.cmd" : "mvnw");
+        if (java.nio.file.Files.isRegularFile(wrapper)) {
+            return wrapper.toAbsolutePath().toString();
+        }
+        return windows ? "mvn.cmd" : "mvn";
     }
 
     private static String discoverMainClass(Path projectDir) {
@@ -107,15 +126,26 @@ public final class ModulithExtractorMain {
         try {
             String content = java.nio.file.Files.readString(pom);
             if (content.contains("spring-boot-maven-plugin")) {
-                int start = content.indexOf("<mainClass>");
-                if (start >= 0) {
-                    start += "<mainClass>".length();
-                    int end = content.indexOf("</mainClass>", start);
-                    if (end > start) return content.substring(start, end).trim();
+                String mainClass = extractTagValue(content, "<mainClass>", "</mainClass>");
+                if (mainClass != null && !mainClass.isBlank()) {
+                    return mainClass.trim();
+                }
+                String startClass = extractTagValue(content, "<start-class>", "</start-class>");
+                if (startClass != null && !startClass.isBlank()) {
+                    return startClass.trim();
                 }
             }
         } catch (IOException ignored) { }
         return null;
+    }
+
+    private static String extractTagValue(String content, String openTag, String closeTag) {
+        int start = content.indexOf(openTag);
+        if (start < 0) return null;
+        start += openTag.length();
+        int end = content.indexOf(closeTag, start);
+        if (end <= start) return null;
+        return content.substring(start, end);
     }
 
     private static void runExtraction(Config config) {

@@ -17,6 +17,12 @@ mvn package
 java -jar target/archimo-1.0.0-SNAPSHOT-all.jar --project-dir=/path/to/your/modulith-app --output-dir=./docs
 ```
 
+Or, from any directory, **download and run the latest `archimo.jar` from GitHub** in one line:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/ludoo0d0a/archimo/main/scripts/archimo.sh | sh
+```
+
 Or run the extractor **from your tests** so every `mvn test` produces the same outputs:
 
 ```java

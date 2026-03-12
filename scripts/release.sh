@@ -17,11 +17,6 @@ if ! command -v git >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -f "pom.xml" ]; then
-  echo "ERROR: pom.xml not found at repo root ($ROOT_DIR)." >&2
-  exit 1
-fi
-
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "ERROR: Current directory is not a git repository." >&2
   exit 1
@@ -33,49 +28,30 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 echo "Fetching latest refs from $REMOTE_NAME..."
-git fetch "$REMOTE_NAME"
+git fetch "$REMOTE_NAME" --tags
 
 echo "Checking out main branch: $MAIN_BRANCH"
 git checkout "$MAIN_BRANCH"
 git pull --ff-only "$REMOTE_NAME" "$MAIN_BRANCH"
 
-echo "Bumping minor version in root pom.xml..."
-NEW_VERSION="$(
-  python - << 'PY'
-import re
-from pathlib import Path
+echo "Determining next minor version from existing tags..."
+LATEST_TAG="$(git tag --list 'v*.*.*' --sort=-v:refname | head -n 1 || true)"
 
-p = Path("pom.xml")
-text = p.read_text(encoding="utf-8")
-
-m = re.search(r"<version>(\d+)\.(\d+)\.(\d+)(-SNAPSHOT)?</version>", text)
-if not m:
-    raise SystemExit("Could not find a semantic version in pom.xml (expected <version>X.Y.Z[-SNAPSHOT]</version>).")
-
-major, minor, patch = map(int, m.group(1, 2, 3))
-minor += 1
-patch = 0
-new_version = f"{major}.{minor}.{patch}-SNAPSHOT"
-
-old_tag = m.group(0)
-new_tag = f"<version>{new_version}</version>"
-
-new_text = text.replace(old_tag, new_tag, 1)
-p.write_text(new_text, encoding="utf-8")
-
-print(new_version)
-PY
-)"
-
-echo "New version: $NEW_VERSION"
-
-if git diff --quiet; then
-  echo "No changes detected in pom.xml after version bump. Aborting."
-  exit 1
+if [ -z "$LATEST_TAG" ]; then
+  echo "No existing semantic version tags found. Starting at v1.0.0."
+  NEW_TAG="v1.0.0"
+else
+  BASE="${LATEST_TAG#v}"
+  IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+  MINOR=$((MINOR + 1))
+  PATCH=0
+  NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
 fi
 
-git commit -am "chore: bump version to $NEW_VERSION"
+echo "Creating and pushing new tag: $NEW_TAG"
+git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
 git push "$REMOTE_NAME" "$MAIN_BRANCH"
+git push "$REMOTE_NAME" "$NEW_TAG"
 
 echo "Syncing release branch: $RELEASE_BRANCH with $MAIN_BRANCH..."
 if git show-ref --verify --quiet "refs/heads/$RELEASE_BRANCH"; then
@@ -88,9 +64,9 @@ else
   fi
 fi
 
-git merge --no-ff "$MAIN_BRANCH" -m "chore: merge $MAIN_BRANCH into $RELEASE_BRANCH for v$NEW_VERSION"
+git merge --no-ff "$MAIN_BRANCH" -m "chore: merge $MAIN_BRANCH into $RELEASE_BRANCH for $NEW_TAG"
 git push "$REMOTE_NAME" "$RELEASE_BRANCH"
 
-echo "Done. Branch '$RELEASE_BRANCH' now contains '$MAIN_BRANCH' with version $NEW_VERSION."
-echo "Any workflows listening to pushes on '$RELEASE_BRANCH' should now be triggered."
+echo "Done. Branch '$RELEASE_BRANCH' now contains '$MAIN_BRANCH' at $NEW_TAG."
+echo "Any workflows listening to pushes on '$RELEASE_BRANCH' or tag '$NEW_TAG' should now be triggered."
 

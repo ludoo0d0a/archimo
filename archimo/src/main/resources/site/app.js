@@ -225,12 +225,18 @@
     const classesEl = document.getElementById('classesResults');
     const eventsEl = document.getElementById('eventsResults');
     const commandsEl = document.getElementById('commandsResults');
+    const architectureEl = document.getElementById('architectureResults');
+    const messagingEl = document.getElementById('messagingResults');
+    const bpmnEl = document.getElementById('bpmnResults');
     const summaryEl = document.getElementById('resultsSummary');
-    if (!modulesEl || !classesEl || !eventsEl || !commandsEl || !summaryEl) return;
+    if (!modulesEl || !classesEl || !eventsEl || !commandsEl || !architectureEl || !messagingEl || !bpmnEl || !summaryEl) return;
     modulesEl.innerHTML = '';
     classesEl.innerHTML = '';
     eventsEl.innerHTML = '';
     commandsEl.innerHTML = '';
+    if (architectureEl) architectureEl.innerHTML = '';
+    if (messagingEl) messagingEl.innerHTML = '';
+    if (bpmnEl) bpmnEl.innerHTML = '';
     if (!index) return;
     const q = term.toLowerCase();
     const match = (s) => q === '' || (s && s.toLowerCase().includes(q));
@@ -239,9 +245,13 @@
     const events = index.events.filter(e =>
       match(e.eventType) || match(e.publisherModule) || (e.listenerModules || []).some(l => match(l)));
     const commands = (index.commands || []).filter(c => match(c.commandType) || match(c.targetModule));
+    const architecture = (index.architecture || []).filter(a => match(a.className) || match(a.layer) || match(a.type));
+    const messaging = (index.messaging || []).filter(m => match(m.technology) || match(m.destination) || match(m.publisher) || (m.subscribers || []).some(s => match(s)));
+    const bpmn = (index.bpmn || []).filter(b => match(b.processId) || match(b.stepName) || match(b.delegate));
+
     summaryEl.textContent = q
-      ? `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${commands.length} commands for "${term}"`
-      : 'Type to search modules, classes, events and commands.';
+      ? `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${commands.length} commands, ${architecture.length} arch, ${messaging.length} msg, ${bpmn.length} bpmn for "${term}"`
+      : 'Type to search modules, classes, events, commands, architecture, messaging and BPMN.';
     modules.forEach(m => {
       const li = document.createElement('li');
       li.textContent = `${m.name}  (${m.basePackage})`;
@@ -262,6 +272,21 @@
       const li = document.createElement('li');
       li.textContent = `${c.commandType}  → ${c.targetModule}`;
       commandsEl.appendChild(li);
+    });
+    architecture.forEach(a => {
+      const li = document.createElement('li');
+      li.textContent = `${a.className}  — layer: ${a.layer}, type: ${a.type}`;
+      if (architectureEl) architectureEl.appendChild(li);
+    });
+    messaging.forEach(m => {
+      const li = document.createElement('li');
+      li.textContent = `[${m.technology}] ${m.destination}  — pub: ${m.publisher}, subs: ${(m.subscribers || []).join(', ')}`;
+      if (messagingEl) messagingEl.appendChild(li);
+    });
+    bpmn.forEach(b => {
+      const li = document.createElement('li');
+      li.textContent = `${b.processId} : ${b.stepName}  (delegate: ${b.delegate})`;
+      if (bpmnEl) bpmnEl.appendChild(li);
     });
   }
 

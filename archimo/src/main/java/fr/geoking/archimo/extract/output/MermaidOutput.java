@@ -1,7 +1,9 @@
 package fr.geoking.archimo.extract.output;
 
+import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.MessagingFlow;
 import fr.geoking.archimo.extract.model.ModuleDependency;
 import org.springframework.modulith.core.ApplicationModules;
 
@@ -9,7 +11,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Writes Mermaid diagrams for event flows, sequences and module dependencies.
@@ -24,6 +28,8 @@ public final class MermaidOutput implements DiagramOutput {
         writeMermaidEventAndCommandFlows(outputDir, flows);
         writeMermaidSequences(outputDir, flows);
         writeMermaidModuleDependencies(outputDir, deps);
+        writeMessagingFlows(outputDir, result.messagingFlows());
+        writeBpmnSequences(outputDir, result.bpmnFlows());
     }
 
     private void writeMermaidEventAndCommandFlows(Path outputDir, List<EventFlow> flows) throws IOException {
@@ -98,6 +104,45 @@ public final class MermaidOutput implements DiagramOutput {
             m.append("  ").append(sanitizeId(d.fromModule())).append(" --> ").append(sanitizeId(d.toModule())).append("\n");
         }
         Files.writeString(dir.resolve("module-dependencies.mmd"), m.toString());
+    }
+
+    private void writeMessagingFlows(Path outputDir, List<MessagingFlow> flows) throws IOException {
+        if (flows.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+        StringBuilder m = new StringBuilder();
+        m.append("flowchart LR\n");
+        for (MessagingFlow f : flows) {
+            String pub = sanitizeId(f.publisher());
+            String dest = sanitizeId(f.destination());
+            m.append("  ").append(pub).append(" -- ").append(f.technology()).append(" --> ").append(dest).append("\n");
+            for (String sub : f.subscribers()) {
+                m.append("  ").append(dest).append(" --> ").append(sanitizeId(sub)).append("\n");
+            }
+        }
+        Files.writeString(mermaidDir.resolve("messaging-flows.mmd"), m.toString());
+    }
+
+    private void writeBpmnSequences(Path outputDir, List<BpmnFlow> flows) throws IOException {
+        if (flows.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+        // Group by processId
+        Map<String, List<BpmnFlow>> processes = new HashMap<>();
+        for (BpmnFlow f : flows) {
+            processes.computeIfAbsent(f.processId(), k -> new ArrayList<>()).add(f);
+        }
+
+        for (Map.Entry<String, List<BpmnFlow>> entry : processes.entrySet()) {
+            StringBuilder m = new StringBuilder();
+            m.append("sequenceDiagram\n");
+            m.append("  Note over Engine: Process ").append(entry.getKey()).append("\n");
+            for (BpmnFlow f : entry.getValue()) {
+                m.append("  Engine->>+").append(sanitizeId(f.delegateBean())).append(": ").append(f.stepName()).append("\n");
+                m.append("  ").append(sanitizeId(f.delegateBean())).append("-->>-Engine: done\n");
+            }
+            Files.writeString(mermaidDir.resolve("bpmn-sequence-" + sanitizeId(entry.getKey()) + ".mmd"), m.toString());
+        }
     }
 
     private static String sanitizeId(String s) {

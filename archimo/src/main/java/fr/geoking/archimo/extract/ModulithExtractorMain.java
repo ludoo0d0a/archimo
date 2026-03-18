@@ -71,6 +71,7 @@ public final class ModulithExtractorMain {
             javaArgs.add(ModulithExtractorMain.class.getName());
             javaArgs.add("--app-class=" + appClass);
             javaArgs.add("--output-dir=" + outDir);
+            javaArgs.add("--project-dir=" + config.projectDir.getAbsolutePath());
 
             Path argsFile = Files.createTempFile(target, "archimo-java-args-", ".txt");
             Files.write(argsFile, javaArgs);
@@ -150,20 +151,21 @@ public final class ModulithExtractorMain {
 
     private static void runExtraction(Config config) {
         try {
-            ApplicationModules modules;
-            if (config.basePackage != null) {
-                modules = ApplicationModules.of(config.basePackage);
-            } else if (config.appClass != null) {
-                Class<?> app = Class.forName(config.appClass);
-                modules = ApplicationModules.of(app);
-            } else {
-                System.err.println("Either --app-class or --base-package is required.");
-                System.exit(1);
-                return;
+            ApplicationModules modules = null;
+            try {
+                if (config.basePackage != null) {
+                    modules = ApplicationModules.of(config.basePackage);
+                } else if (config.appClass != null) {
+                    Class<?> app = Class.forName(config.appClass);
+                    modules = ApplicationModules.of(app);
+                }
+            } catch (Exception e) {
+                System.err.println("Could not initialize Spring Modulith modules (ignoring if not a Modulith project): " + e.getMessage());
             }
 
             Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("modulith-docs");
-            ModulithExtractor extractor = new ModulithExtractor(modules, outputDir);
+            Path projectDir = config.projectDir != null ? config.projectDir.toPath() : null;
+            ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir);
             extractor.extract();
 
             System.out.println("Extraction complete. Output: " + outputDir.toAbsolutePath());
@@ -171,9 +173,6 @@ public final class ModulithExtractorMain {
             System.out.println("  - Module canvases: " + outputDir.resolve("*.adoc"));
             System.out.println("  - Events map & flows: " + outputDir.resolve("json"));
             System.out.println("  - Mermaid: " + outputDir.resolve("mermaid"));
-        } catch (ClassNotFoundException e) {
-            System.err.println("Application class not found (ensure project classes are on classpath): " + e.getMessage());
-            System.exit(1);
         } catch (Exception e) {
             e.printStackTrace();
             System.exit(1);

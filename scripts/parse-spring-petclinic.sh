@@ -8,7 +8,7 @@ cd "$ROOT_DIR"
 # Clone destination (local checkout)
 PETCLINIC_DIR="${PETCLINIC_DIR:-./target/spring-petclinic}"
 # Where Archimo writes the generated report
-REPORT_DIR="${REPORT_DIR:-./target/petclinic-modulith-docs}"
+REPORT_DIR="${REPORT_DIR:-./target/petclinic-archimo-docs}"
 
 # Spring Petclinic main class (Spring Boot)
 PETCLINIC_APP_CLASS="${PETCLINIC_APP_CLASS:-org.springframework.samples.petclinic.PetClinicApplication}"

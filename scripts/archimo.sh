@@ -48,10 +48,11 @@ if [ -f "$PROJECT_DIR/pom.xml" ]; then
   fi
 
   echo "Detected pom.xml. Running: mvn compile dependency:copy-dependencies -DincludeScope=compile"
+  MVN_QUIET_ARGS="-q -B -ntp"
   if [ "$MVN_IS_WRAPPER" -eq 1 ]; then
-    (cd "$PROJECT_DIR" && if [ -x "$MVN_RUNNER" ]; then "$MVN_RUNNER" -q compile dependency:copy-dependencies -DincludeScope=compile; else sh "$MVN_RUNNER" -q compile dependency:copy-dependencies -DincludeScope=compile; fi)
+    (cd "$PROJECT_DIR" && if [ -x "$MVN_RUNNER" ]; then "$MVN_RUNNER" $MVN_QUIET_ARGS compile dependency:copy-dependencies -DincludeScope=compile; else sh "$MVN_RUNNER" $MVN_QUIET_ARGS compile dependency:copy-dependencies -DincludeScope=compile; fi)
   else
-    (cd "$PROJECT_DIR" && "$MVN_RUNNER" -q compile dependency:copy-dependencies -DincludeScope=compile)
+    (cd "$PROJECT_DIR" && "$MVN_RUNNER" $MVN_QUIET_ARGS compile dependency:copy-dependencies -DincludeScope=compile)
   fi
 fi
 
@@ -60,5 +61,59 @@ if [ -z "${JAVA_BIN:-}" ]; then
   JAVA_BIN="java"
 fi
 
-exec "$JAVA_BIN" -jar "$JAR_NAME" "$@"
+cd "$PROJECT_DIR"
+
+# Parse CLI args to find where the HTML report was generated.
+# We keep this intentionally simple and only handle --output-dir / --project-dir.
+OUTPUT_DIR_ARG=""
+PROJECT_DIR_ARG=""
+NEXT_IS_OUTPUT_DIR=0
+NEXT_IS_PROJECT_DIR=0
+for arg in "$@"; do
+  if [ "$NEXT_IS_OUTPUT_DIR" -eq 1 ]; then OUTPUT_DIR_ARG="$arg"; NEXT_IS_OUTPUT_DIR=0; continue; fi
+  if [ "$NEXT_IS_PROJECT_DIR" -eq 1 ]; then PROJECT_DIR_ARG="$arg"; NEXT_IS_PROJECT_DIR=0; continue; fi
+
+  case "$arg" in
+    --output-dir=*) OUTPUT_DIR_ARG="${arg#--output-dir=}" ;;
+    --output-dir) NEXT_IS_OUTPUT_DIR=1 ;;
+    --project-dir=*) PROJECT_DIR_ARG="${arg#--project-dir=}" ;;
+    --project-dir) NEXT_IS_PROJECT_DIR=1 ;;
+  esac
+done
+
+"$JAVA_BIN" -jar "$JAR_NAME" "$@"
+RET="$?"
+
+REPORT_FILE=""
+
+if [ -n "${OUTPUT_DIR_ARG:-}" ]; then
+  # ModulithExtractorMain writes the site under: <outputDir>/site/index.html
+  if echo "$OUTPUT_DIR_ARG" | grep -q '^/'; then
+    REPORT_FILE="$OUTPUT_DIR_ARG/site/index.html"
+  else
+    REPORT_FILE="$PROJECT_DIR/$OUTPUT_DIR_ARG/site/index.html"
+  fi
+elif [ -n "${PROJECT_DIR_ARG:-}" ]; then
+  # In project mode (when --project-dir is set), default outputDir is:
+  # <projectDir>/target/archimo-docs/site/index.html
+  if echo "$PROJECT_DIR_ARG" | grep -q '^/'; then
+    REPORT_FILE="$PROJECT_DIR_ARG/target/archimo-docs/site/index.html"
+  else
+    REPORT_FILE="$PROJECT_DIR/$PROJECT_DIR_ARG/target/archimo-docs/site/index.html"
+  fi
+else
+  # Fallback: likely running from project root.
+  REPORT_FILE="$PROJECT_DIR/target/archimo-docs/site/index.html"
+fi
+
+# Print a clickable file:// URL only if the report exists.
+if [ -f "$REPORT_FILE" ]; then
+  echo
+  echo "Report: file://$REPORT_FILE"
+else
+  echo
+  echo "Report not found: $REPORT_FILE"
+fi
+
+exit "$RET"
 

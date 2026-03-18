@@ -10,7 +10,7 @@ import java.nio.file.Paths;
 
 /**
  * JUnit 5 extension that runs the Modulith extractor after all tests in the class,
- * writing PlantUML, Mermaid, JSON and website report to {@code target/modulith-docs}
+ * writing PlantUML, Mermaid, JSON and website report to {@code target/archimo-docs}
  * (or {@code archimo.report.outputDir}). Use with {@link ArchimoReport} or set
  * {@code archimo.appClass} and optionally {@code archimo.report.outputDir}.
  */
@@ -18,7 +18,7 @@ public final class ArchimoReportExtension implements AfterAllCallback {
 
     private static final String PROP_OUTPUT_DIR = "archimo.report.outputDir";
     private static final String PROP_APP_CLASS = "archimo.appClass";
-    private static final String DEFAULT_OUTPUT = "target/modulith-docs";
+    private static final String DEFAULT_OUTPUT = "target/archimo-docs";
 
     @Override
     public void afterAll(ExtensionContext context) throws Exception {

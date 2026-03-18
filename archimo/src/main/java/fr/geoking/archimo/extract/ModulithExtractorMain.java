@@ -112,7 +112,7 @@ public final class ModulithExtractorMain {
                     .collect(Collectors.joining(java.io.File.pathSeparator));
             String cp = classes.toAbsolutePath() + java.io.File.pathSeparator + depJars + java.io.File.pathSeparator + getCurrentJarPath();
 
-            String outDir = config.outputDir != null ? config.outputDir.toPath().toAbsolutePath().toString() : target.resolve("modulith-docs").toAbsolutePath().toString();
+            String outDir = config.outputDir != null ? config.outputDir.toPath().toAbsolutePath().toString() : target.resolve("archimo-docs").toAbsolutePath().toString();
 
             // Use a Java argument file to avoid very long command lines on Windows (CreateProcess error=206)
             List<String> javaArgs = new ArrayList<>();
@@ -213,7 +213,7 @@ public final class ModulithExtractorMain {
                 System.err.println("Could not initialize Spring Modulith modules (ignoring if not a Modulith project): " + e.getMessage());
             }
 
-            Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("modulith-docs");
+            Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("archimo-docs");
             Path projectDir = config.projectDir != null ? config.projectDir.toPath() : null;
             ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir);
             ExtractResult result = extractor.extract();
@@ -325,8 +325,8 @@ public final class ModulithExtractorMain {
                           - name: Upload architecture report
                             uses: actions/upload-artifact@v4
                             with:
-                              name: modulith-docs
-                              path: modulith-docs/
+                              name: archimo-docs
+                              path: archimo-docs/
                     """;
             Files.writeString(workflowFile, content);
             System.out.println("Generated GitHub Actions workflow: " + workflowFile.toAbsolutePath());

@@ -47,7 +47,7 @@ class MyApplicationTests { ... }
 The workflow in `.github/workflows/build.yml`:
 
 - Builds and runs tests (report is generated from the sample app via `-Darchimo.generateReport=true`)
-- Uploads **archimo-jar** and **modulith-docs** as artifacts
+- Uploads **archimo-jar** and **archimo-docs** as artifacts
 - **Publishes the HTML report to GitHub Pages** on every push to `main`
 
 **One-time repo setup:** **Settings → Pages → Build and deployment → Source: GitHub Actions.**  

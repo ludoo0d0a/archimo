@@ -40,5 +40,5 @@ jobs:
       - name: Upload architecture report
         uses: actions/upload-artifact@v4
         with:
-          name: modulith-docs
-          path: modulith-docs/
+          name: archimo-docs
+          path: archimo-docs/

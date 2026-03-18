@@ -170,12 +170,12 @@ class ModulithExtractorTest {
 
     /**
      * When {@code archimo.generateReport=true}, runs extraction and writes to
-     * {@code target/modulith-docs} so CI can archive the report (PlantUML, Mermaid, site).
+     * {@code target/archimo-docs} so CI can archive the report (PlantUML, Mermaid, site).
      */
     @Test
     @EnabledIfSystemProperty(named = "archimo.generateReport", matches = "true")
     void generateReportToTargetWhenPropertySet() throws Exception {
-        Path reportDir = Path.of("target/modulith-docs");
+        Path reportDir = Path.of("target/archimo-docs");
         ApplicationModules modules = ApplicationModules.of(EcommerceApplication.class);
         Path sampleProjectDir = findSampleProjectDir();
         ModulithExtractor extractor = new ModulithExtractor(modules, reportDir, sampleProjectDir);

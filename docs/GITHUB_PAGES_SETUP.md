@@ -17,7 +17,7 @@ That’s all. No need to create a branch or a `gh-pages` branch.
 - The **`github_pages`** environment is created by GitHub when you select “GitHub Actions” as the source. You don’t need to create it.
 - On every **push** to `main`, the workflow:
   1. Builds all modules (sample, then archimo) and runs tests.
-  2. Generates the report from the sample app into `archimo/target/modulith-docs/site`.
+  2. Generates the report from the sample app into `archimo/target/archimo-docs/site`.
   3. Uploads that folder as the Pages artifact.
   4. Runs the **deploy** job, which publishes the site.
 

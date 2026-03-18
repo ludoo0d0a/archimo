@@ -2,6 +2,7 @@
   let index = null;
   let selectedDiagram = null;
   let showingSource = false;
+  let panZoomInstance = null;
 
   function encodeKroki(str) {
     if (typeof pako === 'undefined') return null;
@@ -58,6 +59,16 @@
     const viewSourceBtn = document.getElementById('viewSourceBtn');
     if (searchInput) searchInput.addEventListener('input', (e) => { renderSearch(e.target.value.trim()); });
     if (viewSourceBtn) viewSourceBtn.addEventListener('click', toggleSource);
+
+    const exportPngBtn = document.getElementById('exportPngBtn');
+    const exportPdfBtn = document.getElementById('exportPdfBtn');
+    const exportAllZipBtn = document.getElementById('exportAllZipBtn');
+    const printAllBtn = document.getElementById('printAllBtn');
+
+    if (exportPngBtn) exportPngBtn.onclick = () => exportCurrentDiagram('png');
+    if (exportPdfBtn) exportPdfBtn.onclick = () => exportCurrentDiagram('pdf');
+    if (exportAllZipBtn) exportAllZipBtn.onclick = () => exportAllAsZip();
+    if (printAllBtn) printAllBtn.onclick = () => printAllDiagrams();
   }
 
   function byC4Level(d) {
@@ -159,9 +170,15 @@
     }
 
     if (d.format === 'mermaid') {
-      renderMermaid(viewerEl, d.source);
+      renderMermaid(viewerEl, d.source).then(() => {
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput && searchInput.value) highlightInDiagram(searchInput.value.trim());
+      });
     } else if (d.format === 'plantuml') {
-      renderPlantUmlKroki(viewerEl, d.source);
+      renderPlantUmlKroki(viewerEl, d.source).then(() => {
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput && searchInput.value) highlightInDiagram(searchInput.value.trim());
+      });
     } else {
       viewerEl.textContent = 'Unknown diagram format.';
     }
@@ -184,34 +201,206 @@
     }
   }
 
+  function initPanZoom(svgElement) {
+    if (panZoomInstance) {
+      panZoomInstance.destroy();
+      panZoomInstance = null;
+    }
+    if (typeof svgPanZoom === 'undefined') return;
+
+    svgElement.style.width = '100%';
+    svgElement.style.height = '100%';
+
+    panZoomInstance = svgPanZoom(svgElement, {
+      zoomEnabled: true,
+      controlIconsEnabled: false,
+      fit: true,
+      center: true,
+      minZoom: 0.1,
+      maxZoom: 10
+    });
+
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    if (zoomInBtn) zoomInBtn.onclick = () => panZoomInstance.zoomIn();
+    if (zoomOutBtn) zoomOutBtn.onclick = () => panZoomInstance.zoomOut();
+    if (resetBtn) resetBtn.onclick = () => {
+      panZoomInstance.resetZoom();
+      panZoomInstance.center();
+    };
+  }
+
+  function exportCurrentDiagram(format) {
+    if (!selectedDiagram) return;
+    const encoded = encodeKroki(selectedDiagram.source);
+    if (!encoded) return;
+    const type = selectedDiagram.format === 'mermaid' ? 'mermaid' : 'plantuml';
+    const url = `https://kroki.io/${type}/${format}/${encoded}`;
+    const filename = `${selectedDiagram.id || 'diagram'}.${format}`;
+
+    fetch(url)
+      .then(res => res.blob())
+      .then(blob => {
+        if (typeof saveAs !== 'undefined') {
+          saveAs(blob, filename);
+        } else {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = filename;
+          a.click();
+        }
+      })
+      .catch(err => console.error('Export error', err));
+  }
+
+  async function exportAllAsZip() {
+    if (!index || !index.diagrams || !index.diagrams.length) return;
+    if (typeof JSZip === 'undefined') {
+      alert('JSZip library not loaded');
+      return;
+    }
+
+    const zip = new JSZip();
+    const folder = zip.folder('diagrams');
+    const btn = document.getElementById('exportAllZipBtn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+
+    try {
+      for (const d of index.diagrams) {
+        const encoded = encodeKroki(d.source);
+        if (!encoded) continue;
+        const type = d.format === 'mermaid' ? 'mermaid' : 'plantuml';
+        const url = `https://kroki.io/${type}/png/${encoded}`;
+        const response = await fetch(url);
+        const blob = await response.blob();
+        folder.file(`${d.id || d.title}.png`, blob);
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      if (typeof saveAs !== 'undefined') {
+        saveAs(content, 'all-diagrams.zip');
+      } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(content);
+        a.download = 'all-diagrams.zip';
+        a.click();
+      }
+    } catch (err) {
+      console.error('ZIP export error', err);
+      alert('Failed to generate ZIP');
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  }
+
+  async function printAllDiagrams() {
+    if (!index || !index.diagrams || !index.diagrams.length) return;
+    const printArea = document.getElementById('printArea');
+    const mainContainer = document.getElementById('mainContainer');
+    if (!printArea || !mainContainer) return;
+
+    printArea.innerHTML = '<h1>All Diagrams</h1>';
+    printArea.classList.remove('hidden');
+    mainContainer.classList.add('hidden');
+    document.querySelector('header').classList.add('hidden');
+    document.querySelector('footer').classList.add('hidden');
+
+    for (const d of index.diagrams) {
+      const section = document.createElement('section');
+      section.className = 'print-diagram-section';
+      section.innerHTML = `<h2>${d.navLabel || d.title}</h2><div class="print-svg-container"></div>`;
+      printArea.appendChild(section);
+      const container = section.querySelector('.print-svg-container');
+
+      if (d.format === 'mermaid') {
+        const id = 'print-mermaid-' + Math.random().toString(36).substr(2, 9);
+        try {
+          const { svg } = await mermaid.render(id, d.source);
+          container.innerHTML = svg;
+        } catch (e) { console.error(e); }
+      } else {
+        const encoded = encodeKroki(d.source);
+        if (encoded) {
+          try {
+            const res = await fetch(`https://kroki.io/plantuml/svg/${encoded}`);
+            const svg = await res.text();
+            container.innerHTML = svg;
+          } catch (e) { console.error(e); }
+        }
+      }
+    }
+
+    setTimeout(() => {
+      window.print();
+      printArea.classList.add('hidden');
+      mainContainer.classList.remove('hidden');
+      document.querySelector('header').classList.remove('hidden');
+      document.querySelector('footer').classList.remove('hidden');
+    }, 1000);
+  }
+
   function renderMermaid(container, source) {
     if (typeof mermaid === 'undefined') {
       container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre>';
-      return;
+      return Promise.resolve();
     }
-    const pre = document.createElement('pre');
-    pre.className = 'mermaid';
-    pre.textContent = source;
-    container.appendChild(pre);
-    mermaid.run({ nodes: [pre], suppressErrors: true }).catch(() => {
+    const id = 'mermaid-' + Math.random().toString(36).substr(2, 9);
+    return mermaid.render(id, source).then(({ svg }) => {
+      container.innerHTML = svg;
+      const svgElement = container.querySelector('svg');
+      if (svgElement) initPanZoom(svgElement);
+    }).catch((err) => {
+      console.error('Mermaid render error', err);
       container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre>';
     });
   }
 
-  function renderPlantUmlKroki(container, source) {
+  async function renderPlantUmlKroki(container, source) {
     const encoded = encodeKroki(source);
     if (!encoded) {
       container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">Kroki encoding not available. Showing source.</p>';
       return;
     }
-    const img = document.createElement('img');
-    img.alt = selectedDiagram ? (selectedDiagram.navLabel || selectedDiagram.title) : 'Diagram';
-    img.loading = 'lazy';
-    img.src = 'https://kroki.io/plantuml/svg/' + encoded;
-    img.onerror = () => {
+    const url = 'https://kroki.io/plantuml/svg/' + encoded;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Kroki request failed');
+      const svgText = await response.text();
+      container.innerHTML = svgText;
+      const svgElement = container.querySelector('svg');
+      if (svgElement) initPanZoom(svgElement);
+    } catch (err) {
+      console.error('PlantUML render error', err);
       container.innerHTML = '<pre class="diagram-source">' + escapeHtml(source) + '</pre><p class="diagram-fallback">Could not load diagram image. Showing source.</p>';
-    };
-    container.appendChild(img);
+    }
+  }
+
+  function highlightInDiagram(term) {
+    const viewerEl = document.getElementById('diagramViewer');
+    if (!viewerEl) return;
+    const svg = viewerEl.querySelector('svg');
+    if (!svg) return;
+
+    svg.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
+    if (!term || term.length < 2) return;
+
+    const q = term.toLowerCase();
+    const texts = svg.querySelectorAll('text');
+    texts.forEach(textEl => {
+      if (textEl.textContent.toLowerCase().includes(q)) {
+        textEl.classList.add('highlight');
+        // If it's inside a shape/group, try to highlight the parent group or siblings
+        let parent = textEl.parentElement;
+        if (parent && parent.tagName === 'g') {
+          parent.classList.add('highlight');
+        }
+      }
+    });
   }
 
   function escapeHtml(s) {
@@ -221,6 +410,7 @@
   }
 
   function renderSearch(term) {
+    highlightInDiagram(term);
     const modulesEl = document.getElementById('modulesResults');
     const classesEl = document.getElementById('classesResults');
     const eventsEl = document.getElementById('eventsResults');

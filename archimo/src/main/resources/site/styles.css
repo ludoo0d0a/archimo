@@ -181,6 +181,13 @@ main {
   color: #111827;
 }
 
+.control-separator {
+  color: #d1d5db;
+  margin: 0 0.25rem;
+  line-height: 2;
+  font-size: 0.8rem;
+}
+
 .view-source-btn.hidden {
   display: none;
 }
@@ -188,18 +195,20 @@ main {
 .diagram-viewer {
   background: #f9fafb;
   border-radius: 0.5rem;
-  padding: 1rem;
-  overflow: auto;
-  max-height: 70vh;
+  padding: 0;
+  overflow: hidden;
+  height: 70vh;
+  border: 1px solid #e5e7eb;
+  position: relative;
 }
 
 .diagram-viewer.hidden {
   display: none;
 }
 
-.diagram-viewer img {
-  max-width: 100%;
-  height: auto;
+.diagram-viewer svg {
+  width: 100%;
+  height: 100%;
   display: block;
 }
 
@@ -225,6 +234,48 @@ main {
 
 .diagram-source-block.hidden {
   display: none;
+}
+
+.diagram-controls {
+  display: flex;
+  gap: 0.25rem;
+  margin-right: auto;
+  margin-left: 1rem;
+}
+
+.diagram-controls button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: #ffffff;
+  color: #4b5563;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.diagram-controls button:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+svg .highlight text,
+svg text.highlight {
+  fill: #4338ca !important;
+  font-weight: bold !important;
+}
+
+svg g.highlight rect,
+svg g.highlight polygon,
+svg g.highlight circle,
+svg g.highlight ellipse,
+svg rect.highlight,
+svg polygon.highlight,
+svg circle.highlight,
+svg ellipse.highlight {
+  stroke: #4338ca !important;
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 4px rgba(67, 56, 202, 0.5));
 }
 
 .diagram-source {
@@ -280,6 +331,77 @@ main {
 .results-columns li {
   padding: 0.15rem 0;
   border-bottom: 1px solid #f3f4f6;
+}
+
+.project-export-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.export-btn {
+  width: 100%;
+  padding: 0.4rem;
+  font-size: 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: #f9fafb;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.export-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.export-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#printArea {
+  padding: 2rem;
+  background: white;
+}
+
+.print-diagram-section {
+  page-break-after: always;
+  margin-bottom: 3rem;
+  text-align: center;
+}
+
+.print-diagram-section h2 {
+  margin-bottom: 1rem;
+}
+
+.print-svg-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+@media print {
+  body {
+    background: white;
+  }
+  header, footer, .sidebar, .search-bar, .diagram-viewer-header, .search-section-title, .results-summary, .results-columns, #diagramSourceBlock, #diagramViewerSection > h2, .view-source-btn {
+    display: none !important;
+  }
+  main {
+    display: block !important;
+    padding: 0 !important;
+  }
+  .content {
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  #printArea {
+    display: block !important;
+  }
+  .hidden {
+    display: none !important;
+  }
 }
 
 footer {

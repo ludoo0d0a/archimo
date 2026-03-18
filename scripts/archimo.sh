@@ -15,17 +15,21 @@ RELEASE_URL="${ARCHIMO_URL:-https://github.com/ludoo0d0a/archimo/releases/downlo
 SCRIPT_DIR="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)"
 
-echo "Downloading Archimo from:"
-echo "  $RELEASE_URL"
-echo "  -> $JAR_NAME"
-
-if command -v wget >/dev/null 2>&1; then
-  wget -q -O "$JAR_NAME" "$RELEASE_URL"
-elif command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$RELEASE_URL" -o "$JAR_NAME"
+if [ -f "$JAR_NAME" ] && [ -s "$JAR_NAME" ] && [ "${ARCHIMO_FORCE_DOWNLOAD:-0}" != "1" ]; then
+  echo "Using local jar: $JAR_NAME"
 else
-  echo "ERROR: Neither wget nor curl is available. Please install one of them." >&2
-  exit 1
+  echo "Downloading Archimo from:"
+  echo "  $RELEASE_URL"
+  echo "  -> $JAR_NAME"
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -q -O "$JAR_NAME" "$RELEASE_URL"
+  elif command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$RELEASE_URL" -o "$JAR_NAME"
+  else
+    echo "ERROR: Neither wget nor curl is available. Please install one of them." >&2
+    exit 1
+  fi
 fi
 
 # If there is a Maven project here, build it like ModulithExtractorMain does

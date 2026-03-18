@@ -6,6 +6,7 @@
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
 </head>
 <body>
   <header>
@@ -44,6 +45,11 @@
       <div id="diagramViewerSection" class="diagram-viewer-section">
         <div class="diagram-viewer-header">
           <h2 id="diagramViewerTitle" class="diagram-viewer-title">Loading…</h2>
+          <div class="diagram-controls">
+            <button type="button" id="zoomInBtn" title="Zoom In">+</button>
+            <button type="button" id="zoomOutBtn" title="Zoom Out">-</button>
+            <button type="button" id="resetBtn" title="Reset">Reset</button>
+          </div>
           <button type="button" id="viewSourceBtn" class="view-source-btn hidden" aria-label="Toggle source">View source</button>
         </div>
         <div id="diagramViewer" class="diagram-viewer"></div>

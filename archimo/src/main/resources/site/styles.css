@@ -188,18 +188,20 @@ main {
 .diagram-viewer {
   background: #f9fafb;
   border-radius: 0.5rem;
-  padding: 1rem;
-  overflow: auto;
-  max-height: 70vh;
+  padding: 0;
+  overflow: hidden;
+  height: 70vh;
+  border: 1px solid #e5e7eb;
+  position: relative;
 }
 
 .diagram-viewer.hidden {
   display: none;
 }
 
-.diagram-viewer img {
-  max-width: 100%;
-  height: auto;
+.diagram-viewer svg {
+  width: 100%;
+  height: 100%;
   display: block;
 }
 
@@ -225,6 +227,48 @@ main {
 
 .diagram-source-block.hidden {
   display: none;
+}
+
+.diagram-controls {
+  display: flex;
+  gap: 0.25rem;
+  margin-right: auto;
+  margin-left: 1rem;
+}
+
+.diagram-controls button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: #ffffff;
+  color: #4b5563;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.diagram-controls button:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+svg .highlight text,
+svg text.highlight {
+  fill: #4338ca !important;
+  font-weight: bold !important;
+}
+
+svg g.highlight rect,
+svg g.highlight polygon,
+svg g.highlight circle,
+svg g.highlight ellipse,
+svg rect.highlight,
+svg polygon.highlight,
+svg circle.highlight,
+svg ellipse.highlight {
+  stroke: #4338ca !important;
+  stroke-width: 3px !important;
+  filter: drop-shadow(0 0 4px rgba(67, 56, 202, 0.5));
 }
 
 .diagram-source {

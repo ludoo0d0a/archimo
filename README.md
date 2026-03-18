@@ -1,5 +1,7 @@
 # Archimo
 
+[![Live Report](https://img.shields.io/badge/Live%20Report-View-brightgreen?logo=googlechrome&logoColor=white)](https://ludoo0d0a.github.io/archimo/)
+
 **Repository:** [https://github.com/ludoo0d0a/archimo](https://github.com/ludoo0d0a/archimo)
 
 Java 17 CLI and test integration to parse **Spring Modulith** applications and extract:
@@ -49,7 +51,7 @@ The workflow in `.github/workflows/build.yml`:
 - **Publishes the HTML report to GitHub Pages** on every push to `main`
 
 **One-time repo setup:** **Settings → Pages → Build and deployment → Source: GitHub Actions.**  
-See **[docs/GITHUB_PAGES_SETUP.md](docs/GITHUB_PAGES_SETUP.md)** for step-by-step instructions. The report will then be at [https://ludoo0d0a.github.io/archimo/](https://ludoo0d0a.github.io/archimo/).
+See **[docs/GITHUB_PAGES_SETUP.md](docs/GITHUB_PAGES_SETUP.md)** for step-by-step instructions.
 
 ## Requirements
 

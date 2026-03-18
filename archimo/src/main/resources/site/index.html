@@ -2,83 +2,124 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Modulith Architecture Explorer</title>
+  <title>Archimo Architecture Explorer</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 </head>
 <body>
   <header>
-    <h1>Modulith Architecture Explorer</h1>
-    <div class="search-bar">
-      <input id="searchInput" type="search" placeholder="Search modules, classes, events, commands…" />
+    <h1>Archimo Architecture Explorer</h1>
+    <div class="header-actions">
+      <div class="search-bar">
+        <input id="searchInput" type="search" placeholder="Search modules, classes, events, commands…" />
+      </div>
+      <button id="themeToggle" title="Toggle Dark/Light Mode" aria-label="Toggle theme">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="theme-icon-light"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      </button>
     </div>
   </header>
 
-  <main>
+  <main id="mainContainer">
     <nav class="sidebar">
-      <h2>C4 diagrams</h2>
+      <h2>Architecture Navigation</h2>
       <div id="c4Level1" class="nav-level">
-        <h3 class="nav-level-title">Level 1 — System context</h3>
+        <h3 class="nav-level-title">System Context (L1)</h3>
         <ul id="diagramListL1" class="diagram-list"></ul>
       </div>
       <div id="c4Level2" class="nav-level">
-        <h3 class="nav-level-title">Level 2 — Containers</h3>
+        <h3 class="nav-level-title">Containers (L2)</h3>
         <ul id="diagramListL2" class="diagram-list"></ul>
       </div>
       <div id="c4Level3" class="nav-level">
-        <h3 class="nav-level-title">Level 3 — Components</h3>
+        <h3 class="nav-level-title">Components (L3)</h3>
         <ul id="diagramListL3" class="diagram-list"></ul>
       </div>
       <div id="c4Level4" class="nav-level">
-        <h3 class="nav-level-title">Level 4 — Code</h3>
+        <h3 class="nav-level-title">Code (L4)</h3>
         <ul id="diagramListL4" class="diagram-list"></ul>
       </div>
       <div id="c4Mermaid" class="nav-level">
-        <h3 class="nav-level-title">Event flows &amp; sequences</h3>
+        <h3 class="nav-level-title">Flows & Sequences</h3>
         <ul id="diagramListMermaid" class="diagram-list"></ul>
+      </div>
+      <div class="nav-level">
+        <h3 class="nav-level-title">Project Export</h3>
+        <div class="project-export-actions">
+          <button type="button" id="exportAllZipBtn" class="export-btn">Download ZIP</button>
+          <button type="button" id="printAllBtn" class="export-btn">Print PDF</button>
+        </div>
       </div>
     </nav>
 
     <section class="content">
-      <div id="diagramViewerSection" class="diagram-viewer-section">
+      <div id="diagramViewerSection" class="section-card">
         <div class="diagram-viewer-header">
           <h2 id="diagramViewerTitle" class="diagram-viewer-title">Loading…</h2>
-          <button type="button" id="viewSourceBtn" class="view-source-btn hidden" aria-label="Toggle source">View source</button>
+          <button type="button" id="viewSourceBtn" class="view-source-btn hidden">View source</button>
         </div>
-        <div id="diagramViewer" class="diagram-viewer"></div>
+        <div id="diagramViewerContainer" class="diagram-viewer-container">
+          <div id="diagramViewer" class="diagram-viewer"></div>
+          <div class="floating-controls">
+            <button type="button" id="zoomInBtn" title="Zoom In">+</button>
+            <button type="button" id="zoomOutBtn" title="Zoom Out">−</button>
+            <button type="button" id="fitBtn" title="Fit to screen">⛶</button>
+            <button type="button" id="resetBtn" title="Reset Center">⊙</button>
+            <div class="separator"></div>
+            <button type="button" id="exportPngBtn" title="Export PNG" style="font-size: 0.7rem; font-weight: bold;">PNG</button>
+            <button type="button" id="exportPdfBtn" title="Export PDF" style="font-size: 0.7rem; font-weight: bold;">PDF</button>
+          </div>
+        </div>
         <div id="diagramSourceBlock" class="diagram-source-block hidden">
           <pre id="diagramSourceText" class="diagram-source"></pre>
         </div>
       </div>
 
-      <h2 class="search-section-title">Search</h2>
-      <div id="resultsSummary" class="results-summary"></div>
-      <div class="results-columns">
-        <div>
-          <h3>Modules</h3>
-          <ul id="modulesResults"></ul>
+      <section id="searchResultsPanel" class="section-card search-results-panel">
+        <h2 class="search-section-title">Search Results</h2>
+        <div id="resultsSummary" class="results-summary" style="margin-bottom: 1rem; font-size: 0.875rem;"></div>
+        <div class="results-columns">
+          <div class="results-column">
+            <h3>Modules</h3>
+            <ul id="modulesResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>Classes</h3>
+            <ul id="classesResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>Events</h3>
+            <ul id="eventsResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>Commands</h3>
+            <ul id="commandsResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>Architecture</h3>
+            <ul id="architectureResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>Messaging</h3>
+            <ul id="messagingResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>BPMN</h3>
+            <ul id="bpmnResults"></ul>
+          </div>
         </div>
-        <div>
-          <h3>Classes / Components</h3>
-          <ul id="classesResults"></ul>
-        </div>
-        <div>
-          <h3>Events</h3>
-          <ul id="eventsResults"></ul>
-        </div>
-        <div>
-          <h3>Commands</h3>
-          <ul id="commandsResults"></ul>
-        </div>
-      </div>
+      </section>
     </section>
   </main>
 
   <footer>
-    <span>Generated by Modulith Extractor — C4 diagrams rendered via Kroki</span>
+    <span>Generated by Modulith Extractor — Diagrams rendered via Kroki</span>
   </footer>
 
+  <div id="printArea" class="hidden"></div>
   <script src="app.js"></script>
 </body>
 </html>

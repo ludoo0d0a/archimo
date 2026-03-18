@@ -31,8 +31,12 @@ class ModulithExtractorTest {
     @Test
     void parseSampleEcommerceProject_producesExpectedModules() throws Exception {
         ApplicationModules modules = ApplicationModules.of(EcommerceApplication.class);
-        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir);
+        Path sampleProjectDir = findSampleProjectDir();
+        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, sampleProjectDir);
         ExtractResult result = extractor.extract();
+
+        assertThat(result.architectureInfos()).isNotEmpty();
+        assertThat(result.architectureInfos()).anyMatch(i -> i.layer().equals("service"));
 
         Set<String> moduleNames = result.eventsMap().stream()
                 .map(m -> m.moduleName())
@@ -146,6 +150,24 @@ class ModulithExtractorTest {
         assertThat(mermaidDir).exists();
     }
 
+    private Path findSampleProjectDir() {
+        Path p = Path.of("archimo-sample-ecommerce");
+        if (Files.isDirectory(p)) return p;
+        p = Path.of("../archimo-sample-ecommerce");
+        if (Files.isDirectory(p)) return p;
+        return null;
+    }
+
+    @Test
+    void parseNonModulithProject_succeeds() throws Exception {
+        // Run without ApplicationModules
+        ModulithExtractor extractor = new ModulithExtractor(null, outputDir);
+        ExtractResult result = extractor.extract();
+
+        assertThat(result.eventsMap()).isEmpty();
+        assertThat(result.architectureInfos()).isEmpty(); // No projectDir provided
+    }
+
     /**
      * When {@code archimo.generateReport=true}, runs extraction and writes to
      * {@code target/modulith-docs} so CI can archive the report (PlantUML, Mermaid, site).
@@ -155,7 +177,8 @@ class ModulithExtractorTest {
     void generateReportToTargetWhenPropertySet() throws Exception {
         Path reportDir = Path.of("target/modulith-docs");
         ApplicationModules modules = ApplicationModules.of(EcommerceApplication.class);
-        ModulithExtractor extractor = new ModulithExtractor(modules, reportDir);
+        Path sampleProjectDir = findSampleProjectDir();
+        ModulithExtractor extractor = new ModulithExtractor(modules, reportDir, sampleProjectDir);
         extractor.extract();
 
         assertThat(reportDir).exists();

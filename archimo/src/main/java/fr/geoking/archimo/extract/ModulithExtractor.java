@@ -14,6 +14,14 @@ import org.springframework.modulith.core.ApplicationModule;
 import org.springframework.modulith.core.ApplicationModuleDependency;
 import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.modulith.core.DependencyType;
+import fr.geoking.archimo.extract.ArchitectureScanner;
+import fr.geoking.archimo.extract.BpmnScanner;
+import fr.geoking.archimo.extract.MessagingScanner;
+import fr.geoking.archimo.extract.model.ArchitectureInfo;
+import fr.geoking.archimo.extract.model.BpmnFlow;
+import fr.geoking.archimo.extract.model.MessagingFlow;
+import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.springframework.modulith.core.EventType;
 
 import java.io.IOException;
@@ -35,11 +43,17 @@ public final class ModulithExtractor {
 
     private final ApplicationModules modules;
     private final Path outputDir;
+    private final Path projectDir;
     private final ObjectMapper objectMapper;
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir) {
-        this.modules = Objects.requireNonNull(modules);
+        this(modules, outputDir, null);
+    }
+
+    public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir) {
+        this.modules = modules;
         this.outputDir = Objects.requireNonNull(outputDir);
+        this.projectDir = projectDir;
         this.objectMapper = new ObjectMapper()
                 .enable(SerializationFeature.INDENT_OUTPUT);
     }
@@ -50,24 +64,37 @@ public final class ModulithExtractor {
     public ExtractResult extract() throws IOException {
         Files.createDirectories(outputDir);
 
-        // 1. Events map, flows, sequences, module dependencies, command flows
-        List<ModuleEvents> eventsMap = buildEventsMap();
-        List<EventFlow> flows = buildEventFlows();
-        List<SequenceFlow> sequences = buildSequences();
-        List<ModuleDependency> moduleDependencies = buildModuleDependencies();
-        List<CommandFlow> commandFlows = buildCommandFlowsFromEventFlows(flows);
+        // 1. Core extraction
+        List<ModuleEvents> eventsMap = modules != null ? buildEventsMap() : List.of();
+        List<EventFlow> flows = modules != null ? buildEventFlows() : List.of();
+        List<SequenceFlow> sequences = modules != null ? buildSequences() : List.of();
+        List<ModuleDependency> moduleDependencies = modules != null ? buildModuleDependencies() : List.of();
+        List<CommandFlow> commandFlows = modules != null ? buildCommandFlowsFromEventFlows(flows) : List.of();
 
-        ExtractResult result = new ExtractResult(eventsMap, flows, sequences, moduleDependencies, commandFlows);
+        // 2. Advanced scanners
+        List<ArchitectureInfo> architectureInfos = new ArrayList<>();
+        List<MessagingFlow> messagingFlows = new ArrayList<>();
+        if (projectDir != null) {
+            Path classesPath = findClassesPath(projectDir);
+            if (classesPath != null && Files.isDirectory(classesPath)) {
+                JavaClasses classes = new ClassFileImporter().importPath(classesPath);
+                architectureInfos = new ArchitectureScanner().scan(classes);
+                messagingFlows = new MessagingScanner().scan(classes);
+            }
+        }
+        List<BpmnFlow> bpmnFlows = new BpmnScanner().scan(projectDir);
 
-        // 2. Delegate diagram outputs to pluggable writers (PlantUML, Mermaid, …)
+        ExtractResult result = new ExtractResult(eventsMap, flows, sequences, moduleDependencies, commandFlows, messagingFlows, bpmnFlows, architectureInfos);
+
+        // 3. Delegate diagram outputs to pluggable writers (PlantUML, Mermaid, …)
         for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
             output.write(modules, outputDir, result);
         }
 
-        // 3. Generate static website (architecture-as-code navigation & search)
-        writeSite(eventsMap, flows, commandFlows, moduleDependencies);
+        // 4. Generate static website (architecture-as-code navigation & search)
+        writeSite(eventsMap, flows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows);
 
-        // 4. Write JSON artifacts last (use absolute path so output location is unambiguous)
+        // 5. Write JSON artifacts last (use absolute path so output location is unambiguous)
         Path jsonDir = outputDir.toAbsolutePath().resolve("json");
         Files.createDirectories(jsonDir);
         objectMapper.writeValue(jsonDir.resolve("events-map.json").toFile(), eventsMap);
@@ -158,7 +185,10 @@ public final class ModulithExtractor {
     private void writeSite(List<ModuleEvents> eventsMap,
                            List<EventFlow> flows,
                            List<CommandFlow> commandFlows,
-                           List<ModuleDependency> moduleDependencies) throws IOException {
+                           List<ModuleDependency> moduleDependencies,
+                           List<ArchitectureInfo> architectureInfos,
+                           List<MessagingFlow> messagingFlows,
+                           List<BpmnFlow> bpmnFlows) throws IOException {
 
         Path siteDir = outputDir.resolve("site");
         Files.createDirectories(siteDir);
@@ -171,13 +201,17 @@ public final class ModulithExtractor {
         // Build diagrams index (based on generated *.puml files)
         List<Map<String, Object>> diagrams = buildDiagramsIndex();
 
-        // Build search index: modules, classes, events, commands
+        // Build search index: modules, classes, events, commands, architecture, messaging, bpmn
         List<Map<String, Object>> modulesIndex = new ArrayList<>();
         List<Map<String, Object>> classesIndex = new ArrayList<>();
         List<Map<String, Object>> eventsIndex = new ArrayList<>();
         List<Map<String, Object>> commandsIndex = new ArrayList<>();
+        List<Map<String, Object>> architectureIndex = new ArrayList<>();
+        List<Map<String, Object>> messagingIndex = new ArrayList<>();
+        List<Map<String, Object>> bpmnIndex = new ArrayList<>();
 
         // Modules and classes
+        if (modules != null)
         for (ApplicationModule module : modules) {
             String moduleName = module.getDisplayName();
             String basePackage = module.getBasePackage().getName();
@@ -218,6 +252,35 @@ public final class ModulithExtractor {
             commandsIndex.add(cmd);
         }
 
+        // Architecture
+        for (ArchitectureInfo info : architectureInfos) {
+            Map<String, Object> arch = new LinkedHashMap<>();
+            arch.put("className", info.className());
+            arch.put("layer", info.layer());
+            arch.put("type", info.architectureType());
+            architectureIndex.add(arch);
+        }
+
+        // Messaging
+        for (MessagingFlow mf : messagingFlows) {
+            Map<String, Object> msg = new LinkedHashMap<>();
+            msg.put("technology", mf.technology());
+            msg.put("destination", mf.destination());
+            msg.put("publisher", mf.publisher());
+            msg.put("subscribers", mf.subscribers());
+            messagingIndex.add(msg);
+        }
+
+        // BPMN
+        for (BpmnFlow bf : bpmnFlows) {
+            Map<String, Object> bpmn = new LinkedHashMap<>();
+            bpmn.put("engine", bf.engine());
+            bpmn.put("processId", bf.processId());
+            bpmn.put("stepName", bf.stepName());
+            bpmn.put("delegate", bf.delegateBean());
+            bpmnIndex.add(bpmn);
+        }
+
         // Site index JSON consumed by the SPA
         Map<String, Object> siteIndex = new LinkedHashMap<>();
         siteIndex.put("diagrams", diagrams);
@@ -226,6 +289,9 @@ public final class ModulithExtractor {
         siteIndex.put("events", eventsIndex);
         siteIndex.put("commands", commandsIndex);
         siteIndex.put("moduleDependencies", moduleDependencies);
+        siteIndex.put("architecture", architectureIndex);
+        siteIndex.put("messaging", messagingIndex);
+        siteIndex.put("bpmn", bpmnIndex);
 
         objectMapper.writeValue(siteDir.resolve("site-index.json").toFile(), siteIndex);
     }
@@ -261,7 +327,7 @@ public final class ModulithExtractor {
                                 c4Level = 1;
                                 level = "system";
                                 category = "overview";
-                                navLabel = "System context";
+                                navLabel = id.replace("-", " ");
                             } else if (fileName.toLowerCase().contains("container")) {
                                 c4Level = 2;
                                 level = "container";
@@ -389,6 +455,14 @@ public final class ModulithExtractor {
                 }
             }
         } catch (Exception ignored) { }
+        return null;
+    }
+
+    private Path findClassesPath(Path projectDir) {
+        Path mavenPath = projectDir.resolve("target/classes");
+        if (Files.isDirectory(mavenPath)) return mavenPath;
+        Path gradlePath = projectDir.resolve("build/classes/java/main");
+        if (Files.isDirectory(gradlePath)) return gradlePath;
         return null;
     }
 

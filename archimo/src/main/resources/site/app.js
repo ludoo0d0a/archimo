@@ -27,6 +27,7 @@
 
   async function loadIndex() {
     try {
+      initTheme();
       let res;
       try {
         res = await fetch('site-index.json');
@@ -42,7 +43,11 @@
       if (!index.events) index.events = [];
       if (!index.commands) index.commands = [];
       if (typeof mermaid !== 'undefined') {
-        mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'loose',
+          theme: document.body.classList.contains('dark-mode') ? 'dark' : 'default'
+        });
       }
       bindUI();
       renderDiagramLists();
@@ -54,11 +59,43 @@
     }
   }
 
+  function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+      document.body.classList.add('dark-mode');
+    }
+  }
+
+  function toggleTheme() {
+    const isDark = document.body.classList.toggle('dark-mode');
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: isDark ? 'dark' : 'default'
+      });
+      if (selectedDiagram && selectedDiagram.format === 'mermaid') {
+        selectDiagram(selectedDiagram);
+      }
+    }
+  }
+
   function bindUI() {
     const searchInput = document.getElementById('searchInput');
     const viewSourceBtn = document.getElementById('viewSourceBtn');
+    const themeToggle = document.getElementById('themeToggle');
+    const fitBtn = document.getElementById('fitBtn');
+
     if (searchInput) searchInput.addEventListener('input', (e) => { renderSearch(e.target.value.trim()); });
     if (viewSourceBtn) viewSourceBtn.addEventListener('click', toggleSource);
+    if (themeToggle) themeToggle.addEventListener('click', toggleTheme);
+    if (fitBtn) fitBtn.addEventListener('click', () => {
+      if (panZoomInstance) {
+        panZoomInstance.fit();
+        panZoomInstance.center();
+      }
+    });
 
     const exportPngBtn = document.getElementById('exportPngBtn');
     const exportPdfBtn = document.getElementById('exportPdfBtn');
@@ -189,15 +226,15 @@
     showingSource = !showingSource;
     const sourceBlock = document.getElementById('diagramSourceBlock');
     const viewSourceBtn = document.getElementById('viewSourceBtn');
-    const viewerEl = document.getElementById('diagramViewer');
+    const viewerContainer = document.getElementById('diagramViewerContainer');
     if (showingSource) {
       sourceBlock.classList.remove('hidden');
       viewSourceBtn.textContent = 'Hide source';
-      viewerEl.classList.add('hidden');
+      viewerContainer.classList.add('hidden');
     } else {
       sourceBlock.classList.add('hidden');
       viewSourceBtn.textContent = 'View source';
-      viewerEl.classList.remove('hidden');
+      viewerContainer.classList.remove('hidden');
     }
   }
 
@@ -394,7 +431,6 @@
     texts.forEach(textEl => {
       if (textEl.textContent.toLowerCase().includes(q)) {
         textEl.classList.add('highlight');
-        // If it's inside a shape/group, try to highlight the parent group or siblings
         let parent = textEl.parentElement;
         if (parent && parent.tagName === 'g') {
           parent.classList.add('highlight');
@@ -411,6 +447,7 @@
 
   function renderSearch(term) {
     highlightInDiagram(term);
+    const searchPanel = document.getElementById('searchResultsPanel');
     const modulesEl = document.getElementById('modulesResults');
     const classesEl = document.getElementById('classesResults');
     const eventsEl = document.getElementById('eventsResults');
@@ -419,17 +456,26 @@
     const messagingEl = document.getElementById('messagingResults');
     const bpmnEl = document.getElementById('bpmnResults');
     const summaryEl = document.getElementById('resultsSummary');
-    if (!modulesEl || !classesEl || !eventsEl || !commandsEl || !architectureEl || !messagingEl || !bpmnEl || !summaryEl) return;
+
+    if (!modulesEl || !classesEl || !eventsEl || !commandsEl || !architectureEl || !messagingEl || !bpmnEl || !summaryEl || !searchPanel) return;
+
+    if (!term || term.length < 2) {
+      searchPanel.classList.remove('active');
+      return;
+    }
+    searchPanel.classList.add('active');
+
     modulesEl.innerHTML = '';
     classesEl.innerHTML = '';
     eventsEl.innerHTML = '';
     commandsEl.innerHTML = '';
-    if (architectureEl) architectureEl.innerHTML = '';
-    if (messagingEl) messagingEl.innerHTML = '';
-    if (bpmnEl) bpmnEl.innerHTML = '';
+    architectureEl.innerHTML = '';
+    messagingEl.innerHTML = '';
+    bpmnEl.innerHTML = '';
+
     if (!index) return;
     const q = term.toLowerCase();
-    const match = (s) => q === '' || (s && s.toLowerCase().includes(q));
+    const match = (s) => (s && s.toLowerCase().includes(q));
     const modules = index.modules.filter(m => match(m.name) || match(m.basePackage));
     const classes = index.classes.filter(c => match(c.className) || match(c.module));
     const events = index.events.filter(e =>
@@ -439,44 +485,43 @@
     const messaging = (index.messaging || []).filter(m => match(m.technology) || match(m.destination) || match(m.publisher) || (m.subscribers || []).some(s => match(s)));
     const bpmn = (index.bpmn || []).filter(b => match(b.processId) || match(b.stepName) || match(b.delegate));
 
-    summaryEl.textContent = q
-      ? `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${commands.length} commands, ${architecture.length} arch, ${messaging.length} msg, ${bpmn.length} bpmn for "${term}"`
-      : 'Type to search modules, classes, events, commands, architecture, messaging and BPMN.';
+    summaryEl.textContent = `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${commands.length} commands, ${architecture.length} arch, ${messaging.length} msg, ${bpmn.length} bpmn for "${term}"`;
+
     modules.forEach(m => {
       const li = document.createElement('li');
-      li.textContent = `${m.name}  (${m.basePackage})`;
+      li.textContent = `${m.name} (${m.basePackage})`;
       modulesEl.appendChild(li);
     });
     classes.forEach(c => {
       const li = document.createElement('li');
-      li.textContent = `${c.className}  [${c.kind}] in ${c.module}`;
+      li.textContent = `${c.className} [${c.kind}] in ${c.module}`;
       classesEl.appendChild(li);
     });
     events.forEach(e => {
       const li = document.createElement('li');
       const listeners = (e.listenerModules || []).join(', ') || '—';
-      li.textContent = `${e.eventType}  — publisher: ${e.publisherModule}, listeners: ${listeners}`;
+      li.textContent = `${e.eventType} — pub: ${e.publisherModule}, subs: ${listeners}`;
       eventsEl.appendChild(li);
     });
     commands.forEach(c => {
       const li = document.createElement('li');
-      li.textContent = `${c.commandType}  → ${c.targetModule}`;
+      li.textContent = `${c.commandType} → ${c.targetModule}`;
       commandsEl.appendChild(li);
     });
     architecture.forEach(a => {
       const li = document.createElement('li');
-      li.textContent = `${a.className}  — layer: ${a.layer}, type: ${a.type}`;
-      if (architectureEl) architectureEl.appendChild(li);
+      li.textContent = `${a.className} — ${a.layer} [${a.type}]`;
+      architectureEl.appendChild(li);
     });
     messaging.forEach(m => {
       const li = document.createElement('li');
-      li.textContent = `[${m.technology}] ${m.destination}  — pub: ${m.publisher}, subs: ${(m.subscribers || []).join(', ')}`;
-      if (messagingEl) messagingEl.appendChild(li);
+      li.textContent = `[${m.technology}] ${m.destination} — pub: ${m.publisher}, subs: ${(m.subscribers || []).join(', ')}`;
+      messagingEl.appendChild(li);
     });
     bpmn.forEach(b => {
       const li = document.createElement('li');
-      li.textContent = `${b.processId} : ${b.stepName}  (delegate: ${b.delegate})`;
-      if (bpmnEl) bpmnEl.appendChild(li);
+      li.textContent = `${b.processId} : ${b.stepName} (delegate: ${b.delegate})`;
+      bpmnEl.appendChild(li);
     });
   }
 

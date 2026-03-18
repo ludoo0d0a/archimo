@@ -167,6 +167,15 @@ main {
   font-weight: 600;
 }
 
+.interactive-node:hover rect,
+.interactive-node:hover polygon,
+.interactive-node:hover circle,
+.interactive-node:hover ellipse {
+  stroke: var(--primary-color) !important;
+  stroke-width: 2px !important;
+  filter: drop-shadow(0 0 4px var(--primary-color));
+}
+
 .content {
   display: flex;
   flex-direction: column;

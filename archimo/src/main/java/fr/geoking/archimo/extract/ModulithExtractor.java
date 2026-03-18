@@ -327,7 +327,7 @@ public final class ModulithExtractor {
                                 c4Level = 1;
                                 level = "system";
                                 category = "overview";
-                                navLabel = "System context";
+                                navLabel = id.replace("-", " ");
                             } else if (fileName.toLowerCase().contains("container")) {
                                 c4Level = 2;
                                 level = "container";

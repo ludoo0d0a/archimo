@@ -86,6 +86,7 @@
     const viewSourceBtn = document.getElementById('viewSourceBtn');
     const themeToggle = document.getElementById('themeToggle');
     const fitBtn = document.getElementById('fitBtn');
+    const resetBtn = document.getElementById('resetBtn');
 
     if (searchInput) searchInput.addEventListener('input', (e) => { renderSearch(e.target.value.trim()); });
     if (viewSourceBtn) viewSourceBtn.addEventListener('click', toggleSource);
@@ -96,6 +97,12 @@
         panZoomInstance.center();
       }
     });
+    if (resetBtn) resetBtn.onclick = () => {
+      if (panZoomInstance) {
+        panZoomInstance.resetZoom();
+        panZoomInstance.center();
+      }
+    };
 
     const exportPngBtn = document.getElementById('exportPngBtn');
     const exportPdfBtn = document.getElementById('exportPdfBtn');
@@ -257,16 +264,39 @@
       maxZoom: 10
     });
 
-    const zoomInBtn = document.getElementById('zoomInBtn');
-    const zoomOutBtn = document.getElementById('zoomOutBtn');
-    const resetBtn = document.getElementById('resetBtn');
+    addSvgInteractivity(svgElement);
+  }
 
-    if (zoomInBtn) zoomInBtn.onclick = () => panZoomInstance.zoomIn();
-    if (zoomOutBtn) zoomOutBtn.onclick = () => panZoomInstance.zoomOut();
-    if (resetBtn) resetBtn.onclick = () => {
-      panZoomInstance.resetZoom();
-      panZoomInstance.center();
-    };
+  function addSvgInteractivity(svgElement) {
+    if (!index || !index.diagrams) return;
+
+    const groups = svgElement.querySelectorAll('g');
+    groups.forEach(group => {
+      const textEls = Array.from(group.querySelectorAll('text'));
+      if (textEls.length === 0) return;
+
+      const label = textEls.map(t => t.textContent.trim()).join(' ');
+
+      const target = index.diagrams.find(d => {
+        const navLabel = (d.navLabel || '').toLowerCase();
+        const id = (d.id || '').toLowerCase().replace('module-', '');
+        const cleanLabel = label.toLowerCase();
+
+        return (navLabel && cleanLabel === navLabel) ||
+               (id && cleanLabel === id) ||
+               (id && cleanLabel.includes(id));
+      });
+
+      if (target && target.id !== (selectedDiagram ? selectedDiagram.id : null)) {
+        group.style.cursor = 'pointer';
+        group.classList.add('interactive-node');
+        group.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          selectDiagram(target);
+        });
+      }
+    });
   }
 
   function exportCurrentDiagram(format) {
@@ -408,7 +438,13 @@
       const response = await fetch(url);
       if (!response.ok) throw new Error('Kroki request failed');
       const svgText = await response.text();
-      container.innerHTML = svgText;
+      // Ensure we only inject the SVG part if there's any junk
+      const svgStart = svgText.indexOf('<svg');
+      if (svgStart !== -1) {
+        container.innerHTML = svgText.substring(svgStart);
+      } else {
+        container.innerHTML = svgText;
+      }
       const svgElement = container.querySelector('svg');
       if (svgElement) initPanZoom(svgElement);
     } catch (err) {

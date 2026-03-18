@@ -1,6 +1,5 @@
-package fr.geoking.archimo;
+package fr.geoking.archimo.extract;
 
-import fr.geoking.archimo.extract.ModulithExtractor;
 import org.springframework.modulith.core.ApplicationModules;
 
 import java.io.IOException;

@@ -54,7 +54,7 @@ Use when the project is already built and you want to run with an explicit class
 ```bash
 # From your Spring Modulith project root (after mvn package)
 java -cp "target/classes:target/dependency/*:path/to/archimo-1.0.0-SNAPSHOT-all.jar" \
-  fr.geoking.archimo.ModulithExtractorMain \
+  fr.geoking.archimo.extract.ModulithExtractorMain \
   --app-class=com.example.YourApplication \
   --output-dir=./docs
 ```
@@ -63,7 +63,7 @@ Or with **base package** instead of main class:
 
 ```bash
 java -cp "target/classes:target/dependency/*:path/to/archimo-*-all.jar" \
-  fr.geoking.archimo.ModulithExtractorMain \
+  fr.geoking.archimo.extract.ModulithExtractorMain \
   --base-package=com.example \
   --output-dir=./docs
 ```
@@ -246,7 +246,7 @@ Then add a test class with `@ExtendWith(ArchimoReportExtension.class)` and `@Arc
 | Use case | Command / setup |
 |----------|------------------|
 | **CLI (another project)** | `java -jar archimo-*-all.jar --project-dir=/path/to/app [--output-dir=...]` |
-| **CLI (classpath)** | `java -cp "..." fr.geoking.archimo.ModulithExtractorMain --app-class=... [--output-dir=...]` |
+| **CLI (classpath)** | `java -cp "..." fr.geoking.archimo.extract.ModulithExtractorMain --app-class=... [--output-dir=...]` |
 | **Report from tests** | Add archimo test dependency + `@ExtendWith(ArchimoReportExtension.class)` and `@ArchimoReport(YourApp.class)` |
 | **Report only in CI** | `mvn test -Darchimo.generateReport=true` (and optionally `-Darchimo.appClass=...`) then archive `target/modulith-docs` |
 

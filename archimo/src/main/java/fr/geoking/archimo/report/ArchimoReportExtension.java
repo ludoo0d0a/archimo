@@ -1,6 +1,6 @@
 package fr.geoking.archimo.report;
 
-import fr.geoking.archimo.ModulithExtractor;
+import fr.geoking.archimo.extract.ModulithExtractor;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.springframework.modulith.core.ApplicationModules;

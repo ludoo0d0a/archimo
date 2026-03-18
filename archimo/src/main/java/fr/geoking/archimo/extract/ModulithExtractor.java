@@ -1,4 +1,4 @@
-package fr.geoking.archimo;
+package fr.geoking.archimo.extract;
 
 import fr.geoking.archimo.extract.model.CommandFlow;
 import fr.geoking.archimo.extract.model.EventFlow;

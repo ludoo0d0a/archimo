@@ -181,6 +181,13 @@ main {
   color: #111827;
 }
 
+.control-separator {
+  color: #d1d5db;
+  margin: 0 0.25rem;
+  line-height: 2;
+  font-size: 0.8rem;
+}
+
 .view-source-btn.hidden {
   display: none;
 }
@@ -324,6 +331,77 @@ svg ellipse.highlight {
 .results-columns li {
   padding: 0.15rem 0;
   border-bottom: 1px solid #f3f4f6;
+}
+
+.project-export-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.export-btn {
+  width: 100%;
+  padding: 0.4rem;
+  font-size: 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: #f9fafb;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.export-btn:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.export-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#printArea {
+  padding: 2rem;
+  background: white;
+}
+
+.print-diagram-section {
+  page-break-after: always;
+  margin-bottom: 3rem;
+  text-align: center;
+}
+
+.print-diagram-section h2 {
+  margin-bottom: 1rem;
+}
+
+.print-svg-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+@media print {
+  body {
+    background: white;
+  }
+  header, footer, .sidebar, .search-bar, .diagram-viewer-header, .search-section-title, .results-summary, .results-columns, #diagramSourceBlock, #diagramViewerSection > h2, .view-source-btn {
+    display: none !important;
+  }
+  main {
+    display: block !important;
+    padding: 0 !important;
+  }
+  .content {
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  #printArea {
+    display: block !important;
+  }
+  .hidden {
+    display: none !important;
+  }
 }
 
 footer {

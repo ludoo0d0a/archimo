@@ -59,6 +59,16 @@
     const viewSourceBtn = document.getElementById('viewSourceBtn');
     if (searchInput) searchInput.addEventListener('input', (e) => { renderSearch(e.target.value.trim()); });
     if (viewSourceBtn) viewSourceBtn.addEventListener('click', toggleSource);
+
+    const exportPngBtn = document.getElementById('exportPngBtn');
+    const exportPdfBtn = document.getElementById('exportPdfBtn');
+    const exportAllZipBtn = document.getElementById('exportAllZipBtn');
+    const printAllBtn = document.getElementById('printAllBtn');
+
+    if (exportPngBtn) exportPngBtn.onclick = () => exportCurrentDiagram('png');
+    if (exportPdfBtn) exportPdfBtn.onclick = () => exportCurrentDiagram('pdf');
+    if (exportAllZipBtn) exportAllZipBtn.onclick = () => exportAllAsZip();
+    if (printAllBtn) printAllBtn.onclick = () => printAllDiagrams();
   }
 
   function byC4Level(d) {
@@ -220,6 +230,118 @@
       panZoomInstance.resetZoom();
       panZoomInstance.center();
     };
+  }
+
+  function exportCurrentDiagram(format) {
+    if (!selectedDiagram) return;
+    const encoded = encodeKroki(selectedDiagram.source);
+    if (!encoded) return;
+    const type = selectedDiagram.format === 'mermaid' ? 'mermaid' : 'plantuml';
+    const url = `https://kroki.io/${type}/${format}/${encoded}`;
+    const filename = `${selectedDiagram.id || 'diagram'}.${format}`;
+
+    fetch(url)
+      .then(res => res.blob())
+      .then(blob => {
+        if (typeof saveAs !== 'undefined') {
+          saveAs(blob, filename);
+        } else {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = filename;
+          a.click();
+        }
+      })
+      .catch(err => console.error('Export error', err));
+  }
+
+  async function exportAllAsZip() {
+    if (!index || !index.diagrams || !index.diagrams.length) return;
+    if (typeof JSZip === 'undefined') {
+      alert('JSZip library not loaded');
+      return;
+    }
+
+    const zip = new JSZip();
+    const folder = zip.folder('diagrams');
+    const btn = document.getElementById('exportAllZipBtn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+
+    try {
+      for (const d of index.diagrams) {
+        const encoded = encodeKroki(d.source);
+        if (!encoded) continue;
+        const type = d.format === 'mermaid' ? 'mermaid' : 'plantuml';
+        const url = `https://kroki.io/${type}/png/${encoded}`;
+        const response = await fetch(url);
+        const blob = await response.blob();
+        folder.file(`${d.id || d.title}.png`, blob);
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      if (typeof saveAs !== 'undefined') {
+        saveAs(content, 'all-diagrams.zip');
+      } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(content);
+        a.download = 'all-diagrams.zip';
+        a.click();
+      }
+    } catch (err) {
+      console.error('ZIP export error', err);
+      alert('Failed to generate ZIP');
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  }
+
+  async function printAllDiagrams() {
+    if (!index || !index.diagrams || !index.diagrams.length) return;
+    const printArea = document.getElementById('printArea');
+    const mainContainer = document.getElementById('mainContainer');
+    if (!printArea || !mainContainer) return;
+
+    printArea.innerHTML = '<h1>All Diagrams</h1>';
+    printArea.classList.remove('hidden');
+    mainContainer.classList.add('hidden');
+    document.querySelector('header').classList.add('hidden');
+    document.querySelector('footer').classList.add('hidden');
+
+    for (const d of index.diagrams) {
+      const section = document.createElement('section');
+      section.className = 'print-diagram-section';
+      section.innerHTML = `<h2>${d.navLabel || d.title}</h2><div class="print-svg-container"></div>`;
+      printArea.appendChild(section);
+      const container = section.querySelector('.print-svg-container');
+
+      if (d.format === 'mermaid') {
+        const id = 'print-mermaid-' + Math.random().toString(36).substr(2, 9);
+        try {
+          const { svg } = await mermaid.render(id, d.source);
+          container.innerHTML = svg;
+        } catch (e) { console.error(e); }
+      } else {
+        const encoded = encodeKroki(d.source);
+        if (encoded) {
+          try {
+            const res = await fetch(`https://kroki.io/plantuml/svg/${encoded}`);
+            const svg = await res.text();
+            container.innerHTML = svg;
+          } catch (e) { console.error(e); }
+        }
+      }
+    }
+
+    setTimeout(() => {
+      window.print();
+      printArea.classList.add('hidden');
+      mainContainer.classList.remove('hidden');
+      document.querySelector('header').classList.remove('hidden');
+      document.querySelector('footer').classList.remove('hidden');
+    }, 1000);
   }
 
   function renderMermaid(container, source) {

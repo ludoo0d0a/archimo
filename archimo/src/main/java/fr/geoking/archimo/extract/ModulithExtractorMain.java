@@ -1,11 +1,14 @@
 package fr.geoking.archimo;
 
+import fr.geoking.archimo.extract.model.ExtractResult;
 import org.springframework.modulith.core.ApplicationModules;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -21,12 +24,59 @@ public final class ModulithExtractorMain {
             System.exit(1);
         }
 
+        if (config.githubUrl != null) {
+            runGithubMode(config);
+            return;
+        }
+
+        if (config.generateWorkflow) {
+            generateWorkflow();
+            return;
+        }
+
         if (config.projectDir != null) {
             runProjectMode(config);
             return;
         }
 
         runExtraction(config);
+    }
+
+    private static void runGithubMode(Config config) {
+        Path tempDir = null;
+        try {
+            tempDir = Files.createTempDirectory("archimo-gh-");
+            Path finalTempDir = tempDir;
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                try {
+                    if (Files.exists(finalTempDir)) {
+                        Files.walk(finalTempDir)
+                                .sorted(Comparator.reverseOrder())
+                                .map(Path::toFile)
+                                .forEach(File::delete);
+                    }
+                } catch (IOException ignored) {
+                }
+            }));
+
+            System.out.println("Cloning " + config.githubUrl + " into " + tempDir + "...");
+
+            ProcessBuilder pb = new ProcessBuilder("git", "clone", "--depth", "1", "--", config.githubUrl, ".");
+            pb.directory(tempDir.toFile());
+            pb.inheritIO();
+            int exit = pb.start().waitFor();
+            if (exit != 0) {
+                System.err.println("Git clone failed.");
+                System.exit(1);
+            }
+
+            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false);
+            runProjectMode(newConfig);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
     }
 
     private static void runProjectMode(Config config) {
@@ -166,15 +216,122 @@ public final class ModulithExtractorMain {
             Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("modulith-docs");
             Path projectDir = config.projectDir != null ? config.projectDir.toPath() : null;
             ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir);
-            extractor.extract();
+            ExtractResult result = extractor.extract();
 
             System.out.println("Extraction complete. Output: " + outputDir.toAbsolutePath());
             System.out.println("  - C4/PlantUML: " + outputDir.resolve("*.puml"));
             System.out.println("  - Module canvases: " + outputDir.resolve("*.adoc"));
             System.out.println("  - Events map & flows: " + outputDir.resolve("json"));
             System.out.println("  - Mermaid: " + outputDir.resolve("mermaid"));
+
+            writeGitHubSummary(result, outputDir);
         } catch (Exception e) {
             e.printStackTrace();
+            System.exit(1);
+        }
+    }
+
+    private static void writeGitHubSummary(ExtractResult result, Path outputDir) {
+        String summaryFile = System.getenv("GITHUB_STEP_SUMMARY");
+        if (summaryFile == null || summaryFile.isBlank()) {
+            return;
+        }
+
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("# Archimo Extraction Summary\n\n");
+            sb.append("Extraction complete! Here are some stats:\n\n");
+            sb.append("- **Modules**: ").append(result.eventsMap().size()).append("\n");
+            sb.append("- **Events**: ").append(result.flows().size()).append("\n");
+            sb.append("- **Command Flows**: ").append(result.commandFlows().size()).append("\n");
+            sb.append("- **Messaging Flows**: ").append(result.messagingFlows().size()).append("\n");
+            sb.append("- **BPMN Flows**: ").append(result.bpmnFlows().size()).append("\n");
+            sb.append("- **Architecture Components**: ").append(result.architectureInfos().size()).append("\n\n");
+
+            String serverUrl = System.getenv("GITHUB_SERVER_URL");
+            String repo = System.getenv("GITHUB_REPOSITORY");
+            String runId = System.getenv("GITHUB_RUN_ID");
+
+            if (serverUrl != null && repo != null && runId != null) {
+                String artifactsUrl = serverUrl + "/" + repo + "/actions/runs/" + runId + "#artifacts";
+                sb.append("[View full report artifacts](").append(artifactsUrl).append(")\n");
+            } else {
+                sb.append("You can access the full report in the artifacts section.\n");
+            }
+
+            Files.writeString(Path.of(summaryFile), sb.toString(), java.nio.file.StandardOpenOption.APPEND);
+            System.out.println("GitHub Actions summary written.");
+        } catch (IOException e) {
+            System.err.println("Failed to write GitHub Actions summary: " + e.getMessage());
+        }
+    }
+
+    private static void generateWorkflow() {
+        Path workflowDir = Path.of(".github/workflows");
+        try {
+            Files.createDirectories(workflowDir);
+            Path workflowFile = workflowDir.resolve("archimo-scan.yml");
+            if (Files.exists(workflowFile)) {
+                System.out.println("Workflow file already exists: " + workflowFile.toAbsolutePath());
+                return;
+            }
+
+            String repo = System.getenv("GITHUB_REPOSITORY");
+            if (repo == null) {
+                repo = "ludoo0d0a/archimo"; // fallback
+            }
+
+            String content = """
+                    name: Archimo Scan
+
+                    on:
+                      workflow_dispatch:
+                        inputs:
+                          url:
+                            description: 'GitHub repository URL'
+                            required: true
+                          appClass:
+                            description: 'Main application class (fully qualified name)'
+                            required: false
+
+                    jobs:
+                      scan:
+                        runs-on: ubuntu-latest
+                        steps:
+                          - name: Checkout Archimo
+                            uses: actions/checkout@v4
+                            with:
+                              repository: '""" + repo + """
+                    '
+
+                          - name: Set up JDK 17
+                            uses: actions/setup-java@v4
+                            with:
+                              java-version: '17'
+                              distribution: 'temurin'
+                              cache: maven
+
+                          - name: Build Archimo
+                            run: mvn -B --no-transfer-progress package -DskipTests -pl archimo -am
+
+                          - name: Run Archimo Scan
+                            run: |
+                              APP_CLASS_ARG=""
+                              if [ -n "${{ github.event.inputs.appClass }}" ]; then
+                                APP_CLASS_ARG="--app-class=${{ github.event.inputs.appClass }}"
+                              fi
+                              java -jar archimo/target/archimo-*-all.jar --github-url=${{ github.event.inputs.url }} $APP_CLASS_ARG
+
+                          - name: Upload architecture report
+                            uses: actions/upload-artifact@v4
+                            with:
+                              name: modulith-docs
+                              path: modulith-docs/
+                    """;
+            Files.writeString(workflowFile, content);
+            System.out.println("Generated GitHub Actions workflow: " + workflowFile.toAbsolutePath());
+        } catch (IOException e) {
+            System.err.println("Failed to generate workflow: " + e.getMessage());
             System.exit(1);
         }
     }
@@ -186,6 +343,10 @@ public final class ModulithExtractorMain {
         System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.ModulithExtractorMain --base-package=<package> [--output-dir=<path>]");
         System.err.println("  Project mode (builds with Maven then extracts):");
         System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--output-dir=<path>]");
+        System.err.println("  GitHub mode (clones repo, builds with Maven then extracts):");
+        System.err.println("    java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--output-dir=<path>]");
+        System.err.println("  Workflow generation:");
+        System.err.println("    java -jar archimo-all.jar --generate-workflow");
     }
 
     private static final class Config {
@@ -193,12 +354,16 @@ public final class ModulithExtractorMain {
         final String appClass;
         final String basePackage;
         final java.io.File outputDir;
+        final String githubUrl;
+        final boolean generateWorkflow;
 
-        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir) {
+        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow) {
             this.projectDir = projectDir;
             this.appClass = appClass;
             this.basePackage = basePackage;
             this.outputDir = outputDir;
+            this.githubUrl = githubUrl;
+            this.generateWorkflow = generateWorkflow;
         }
 
         static Config parse(String[] args) {
@@ -206,15 +371,19 @@ public final class ModulithExtractorMain {
             String appClass = null;
             String basePackage = null;
             java.io.File outputDir = null;
+            String githubUrl = null;
+            boolean generateWorkflow = false;
             for (String a : args) {
                 if (a.startsWith("--project-dir=")) projectDir = new java.io.File(a.substring("--project-dir=".length()));
                 else if (a.startsWith("--app-class=")) appClass = a.substring("--app-class=".length()).trim();
                 else if (a.startsWith("--base-package=")) basePackage = a.substring("--base-package=".length()).trim();
                 else if (a.startsWith("--output-dir=")) outputDir = new java.io.File(a.substring("--output-dir=".length()));
+                else if (a.startsWith("--github-url=")) githubUrl = a.substring("--github-url=".length()).trim();
+                else if (a.equals("--generate-workflow")) generateWorkflow = true;
             }
-            if (projectDir == null && appClass == null && basePackage == null) return null;
+            if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow) return null;
             if (projectDir != null && !projectDir.isDirectory()) return null;
-            return new Config(projectDir, appClass, basePackage, outputDir);
+            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow);
         }
     }
 }

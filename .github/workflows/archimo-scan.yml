@@ -1,0 +1,44 @@
+name: Archimo Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'GitHub repository URL'
+        required: true
+      appClass:
+        description: 'Main application class (fully qualified name)'
+        required: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Archimo
+        uses: actions/checkout@v4
+        with:
+          repository: 'ludoo0d0a/archimo'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build Archimo
+        run: mvn -B --no-transfer-progress package -DskipTests -pl archimo -am
+
+      - name: Run Archimo Scan
+        run: |
+          APP_CLASS_ARG=""
+          if [ -n "${{ github.event.inputs.appClass }}" ]; then
+            APP_CLASS_ARG="--app-class=${{ github.event.inputs.appClass }}"
+          fi
+          java -jar archimo/target/archimo-*-all.jar --github-url=${{ github.event.inputs.url }} $APP_CLASS_ARG
+
+      - name: Upload architecture report
+        uses: actions/upload-artifact@v4
+        with:
+          name: modulith-docs
+          path: modulith-docs/

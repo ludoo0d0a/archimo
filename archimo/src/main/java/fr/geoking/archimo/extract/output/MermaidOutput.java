@@ -3,6 +3,7 @@ package fr.geoking.archimo.extract.output;
 import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.ClassDependency;
+import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.MessagingFlow;
@@ -34,6 +35,8 @@ public final class MermaidOutput implements DiagramOutput {
         writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies(), result.fullDependencyMode());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
         writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
+        writeEndpointFlowDiagram(outputDir, result.endpointFlows(), result.classDependencies(), result.architectureInfos());
+        writeEndpointSequenceDiagram(outputDir, result.endpointFlows(), result.classDependencies(), result.architectureInfos());
         writeMessagingFlows(outputDir, result.messagingFlows());
         writeBpmnSequences(outputDir, result.bpmnFlows());
     }
@@ -354,6 +357,79 @@ public final class MermaidOutput implements DiagramOutput {
         if (fromLayer.equals("service") && toLayer.equals("domain")) return true;
         if (fromLayer.equals("application") && toLayer.equals("infrastructure")) return true;
         return fromLayer.equals("controller") && toLayer.equals("application");
+    }
+
+    private void writeEndpointFlowDiagram(Path outputDir,
+                                          List<EndpointFlow> endpointFlows,
+                                          List<ClassDependency> classDependencies,
+                                          List<ArchitectureInfo> architectureInfos) throws IOException {
+        if (endpointFlows == null || endpointFlows.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+        Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(architectureInfos);
+        List<ArchitectureInfo> services = byLayer.getOrDefault("service", List.of());
+        List<ArchitectureInfo> repositories = byLayer.getOrDefault("repository", List.of());
+
+        StringBuilder m = new StringBuilder();
+        m.append("%% Endpoint flow map\n");
+        m.append("flowchart LR\n");
+        m.append("  Client((Client))\n");
+
+        for (EndpointFlow endpoint : endpointFlows) {
+            String endpointId = sanitizeId("ep_" + endpoint.httpMethod() + "_" + endpoint.path());
+            String controllerId = sanitizeId(endpoint.controllerClass());
+            m.append("  ").append(endpointId).append("[\"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\"]\n");
+            m.append("  ").append(controllerId).append("[\"").append(simpleName(endpoint.controllerClass())).append("\"]\n");
+            m.append("  Client --> ").append(endpointId).append("\n");
+            m.append("  ").append(endpointId).append(" --> ").append(controllerId).append("\n");
+
+            String service = firstDependencyTarget(endpoint.controllerClass(), services, classDependencies);
+            if (service != null) {
+                String serviceId = sanitizeId(service);
+                m.append("  ").append(serviceId).append("[\"").append(simpleName(service)).append("\"]\n");
+                m.append("  ").append(controllerId).append(" --> ").append(serviceId).append("\n");
+                String repository = firstDependencyTarget(service, repositories, classDependencies);
+                if (repository != null) {
+                    String repositoryId = sanitizeId(repository);
+                    m.append("  ").append(repositoryId).append("[\"").append(simpleName(repository)).append("\"]\n");
+                    m.append("  ").append(serviceId).append(" --> ").append(repositoryId).append("\n");
+                }
+            }
+        }
+        Files.writeString(mermaidDir.resolve("endpoint-flow.mmd"), m.toString());
+    }
+
+    private void writeEndpointSequenceDiagram(Path outputDir,
+                                              List<EndpointFlow> endpointFlows,
+                                              List<ClassDependency> classDependencies,
+                                              List<ArchitectureInfo> architectureInfos) throws IOException {
+        if (endpointFlows == null || endpointFlows.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+        EndpointFlow endpoint = endpointFlows.get(0);
+        Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(architectureInfos);
+        String controllerClass = endpoint.controllerClass();
+        String serviceClass = firstDependencyTarget(controllerClass, byLayer.getOrDefault("service", List.of()), classDependencies);
+        String repositoryClass = serviceClass == null ? null
+                : firstDependencyTarget(serviceClass, byLayer.getOrDefault("repository", List.of()), classDependencies);
+        String controller = simpleName(controllerClass);
+        String service = serviceClass != null ? simpleName(serviceClass) : "Service";
+        String repository = repositoryClass != null ? simpleName(repositoryClass) : "Repository";
+
+        StringBuilder m = new StringBuilder();
+        m.append("%% Endpoint sequence\n");
+        m.append("sequenceDiagram\n");
+        m.append("  participant Client\n");
+        m.append("  participant ").append(controller).append("\n");
+        m.append("  participant ").append(service).append("\n");
+        m.append("  participant ").append(repository).append("\n");
+        m.append("  Client->>").append(controller).append(": ").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\n");
+        m.append("  ").append(controller).append("->>").append(service).append(": ").append(endpoint.controllerMethod()).append("()\n");
+        m.append("  ").append(service).append("->>").append(repository).append(": query/persist\n");
+        m.append("  ").append(repository).append("-->>").append(service).append(": data\n");
+        m.append("  ").append(service).append("-->>").append(controller).append(": response model\n");
+        m.append("  ").append(controller).append("-->>Client: HTTP response\n");
+        Files.writeString(mermaidDir.resolve("endpoint-sequence.mmd"), m.toString());
     }
 
     private void writeBpmnSequences(Path outputDir, List<BpmnFlow> flows) throws IOException {

@@ -15,6 +15,7 @@ public record ExtractResult(
     List<SequenceFlow> sequences,
     List<ModuleDependency> moduleDependencies,
     List<ClassDependency> classDependencies,
+    List<EndpointFlow> endpointFlows,
     List<CommandFlow> commandFlows,
     List<MessagingFlow> messagingFlows,
     List<BpmnFlow> bpmnFlows,

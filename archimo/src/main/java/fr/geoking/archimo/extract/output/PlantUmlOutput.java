@@ -9,6 +9,7 @@ import org.springframework.modulith.docs.Documenter.Options;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.ClassDependency;
+import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 
 import java.io.IOException;
@@ -41,6 +42,8 @@ public final class PlantUmlOutput implements DiagramOutput {
         writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies(), result.fullDependencyMode());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
         writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
+        writeEndpointFlowDiagram(outputDir, result.endpointFlows(), result.classDependencies(), result.architectureInfos());
+        writeEndpointSequenceDiagram(outputDir, result.endpointFlows(), result.classDependencies(), result.architectureInfos());
         writeMessagingDiagram(outputDir, result.messagingFlows());
         writeBpmnDiagram(outputDir, result.bpmnFlows());
     }
@@ -257,6 +260,80 @@ public final class PlantUmlOutput implements DiagramOutput {
         if (fromLayer.equals("service") && toLayer.equals("domain")) return true;
         if (fromLayer.equals("application") && toLayer.equals("infrastructure")) return true;
         return fromLayer.equals("controller") && toLayer.equals("application");
+    }
+
+    private void writeEndpointFlowDiagram(Path outputDir,
+                                          List<EndpointFlow> endpointFlows,
+                                          List<ClassDependency> classDependencies,
+                                          List<ArchitectureInfo> architectureInfos) throws IOException {
+        if (endpointFlows == null || endpointFlows.isEmpty()) return;
+        Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(architectureInfos);
+        List<ArchitectureInfo> services = byLayer.getOrDefault("service", List.of());
+        List<ArchitectureInfo> repositories = byLayer.getOrDefault("repository", List.of());
+
+        StringBuilder p = new StringBuilder();
+        p.append("@startuml\n");
+        p.append("title Endpoint Flow Map\n");
+        p.append("left to right direction\n");
+        p.append("actor Client\n");
+
+        for (EndpointFlow endpoint : endpointFlows) {
+            String endpointId = "ep_" + toId(endpoint.httpMethod() + "_" + endpoint.path());
+            String controllerId = toId(endpoint.controllerClass());
+            p.append("usecase \"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\" as ").append(endpointId).append("\n");
+            p.append("component \"").append(simpleName(endpoint.controllerClass())).append("\" as ").append(controllerId).append("\n");
+            p.append("Client --> ").append(endpointId).append("\n");
+            p.append(endpointId).append(" --> ").append(controllerId).append("\n");
+
+            String service = firstDependencyTarget(endpoint.controllerClass(), services, classDependencies);
+            if (service != null) {
+                String serviceId = toId(service);
+                p.append("component \"").append(simpleName(service)).append("\" as ").append(serviceId).append("\n");
+                p.append(controllerId).append(" --> ").append(serviceId).append("\n");
+
+                String repository = firstDependencyTarget(service, repositories, classDependencies);
+                if (repository != null) {
+                    String repoId = toId(repository);
+                    p.append("component \"").append(simpleName(repository)).append("\" as ").append(repoId).append("\n");
+                    p.append(serviceId).append(" --> ").append(repoId).append("\n");
+                }
+            }
+        }
+        p.append("@enduml");
+        Files.writeString(outputDir.resolve("endpoint-flow.puml"), p.toString());
+    }
+
+    private void writeEndpointSequenceDiagram(Path outputDir,
+                                              List<EndpointFlow> endpointFlows,
+                                              List<ClassDependency> classDependencies,
+                                              List<ArchitectureInfo> architectureInfos) throws IOException {
+        if (endpointFlows == null || endpointFlows.isEmpty()) return;
+        EndpointFlow endpoint = endpointFlows.get(0);
+        Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(architectureInfos);
+        String controllerClass = endpoint.controllerClass();
+        String serviceClass = firstDependencyTarget(controllerClass, byLayer.getOrDefault("service", List.of()), classDependencies);
+        String repositoryClass = serviceClass == null ? null
+                : firstDependencyTarget(serviceClass, byLayer.getOrDefault("repository", List.of()), classDependencies);
+
+        String controller = simpleName(controllerClass);
+        String service = serviceClass != null ? simpleName(serviceClass) : "Service";
+        String repository = repositoryClass != null ? simpleName(repositoryClass) : "Repository";
+
+        StringBuilder p = new StringBuilder();
+        p.append("@startuml\n");
+        p.append("title Endpoint Sequence - ").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\n");
+        p.append("actor Client\n");
+        p.append("participant ").append(controller).append("\n");
+        p.append("participant ").append(service).append("\n");
+        p.append("participant ").append(repository).append("\n");
+        p.append("Client -> ").append(controller).append(" : ").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\n");
+        p.append(controller).append(" -> ").append(service).append(" : ").append(endpoint.controllerMethod()).append("()\n");
+        p.append(service).append(" -> ").append(repository).append(" : query/persist\n");
+        p.append(repository).append(" --> ").append(service).append(" : data\n");
+        p.append(service).append(" --> ").append(controller).append(" : response model\n");
+        p.append(controller).append(" --> Client : HTTP response\n");
+        p.append("@enduml");
+        Files.writeString(outputDir.resolve("endpoint-sequence.puml"), p.toString());
     }
 
     private static String simpleName(String fqcn) {

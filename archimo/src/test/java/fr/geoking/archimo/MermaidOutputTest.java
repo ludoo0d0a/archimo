@@ -6,6 +6,7 @@ import fr.geoking.archimo.extract.model.ModuleDependency;
 import fr.geoking.archimo.extract.model.SequenceFlow;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.ClassDependency;
+import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.output.MermaidOutput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -35,6 +36,7 @@ class MermaidOutputTest {
                 frSequences, // sequences
                 frDeps,      // moduleDependencies
                 List.of(),   // classDependencies
+                List.of(),   // endpointFlows
                 List.of(),   // commandFlows
                 List.of(),   // messagingFlows
                 List.of(),   // bpmnFlows
@@ -61,6 +63,9 @@ class MermaidOutputTest {
                 List.of(
                         new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerService"),
                         new ClassDependency("com.example.petclinic.OwnerService", "com.example.petclinic.OwnerRepository")
+                ),
+                List.of(
+                        new EndpointFlow("GET", "/owners", "com.example.petclinic.OwnerController", "listOwners")
                 ),
                 List.of(),
                 List.of(),
@@ -94,6 +99,14 @@ class MermaidOutputTest {
         String sequenceMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-sequence.mmd"));
         assertThat(sequenceMmd).contains("Client->>OwnerController: HTTP request");
         assertThat(sequenceMmd).contains("OwnerService->>OwnerRepository: query/persist");
+
+        String endpointFlowMmd = Files.readString(outputDir.resolve("mermaid").resolve("endpoint-flow.mmd"));
+        assertThat(endpointFlowMmd).contains("GET /owners");
+        assertThat(endpointFlowMmd).contains("OwnerController");
+
+        String endpointSequenceMmd = Files.readString(outputDir.resolve("mermaid").resolve("endpoint-sequence.mmd"));
+        assertThat(endpointSequenceMmd).contains("Client->>OwnerController: GET /owners");
+        assertThat(endpointSequenceMmd).contains("OwnerController->>OwnerService: listOwners()");
     }
 
     @Test
@@ -105,6 +118,9 @@ class MermaidOutputTest {
                 List.of(),
                 List.of(
                         new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerEntity")
+                ),
+                List.of(
+                        new EndpointFlow("GET", "/owners/{id}", "com.example.petclinic.OwnerController", "getOwner")
                 ),
                 List.of(),
                 List.of(),

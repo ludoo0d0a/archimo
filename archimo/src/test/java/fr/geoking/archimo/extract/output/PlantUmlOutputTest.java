@@ -2,6 +2,7 @@ package fr.geoking.archimo.extract.output;
 
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.ClassDependency;
+import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,6 +28,9 @@ class PlantUmlOutputTest {
                 List.of(
                         new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerService"),
                         new ClassDependency("com.example.petclinic.OwnerService", "com.example.petclinic.OwnerRepository")
+                ),
+                List.of(
+                        new EndpointFlow("GET", "/owners", "com.example.petclinic.OwnerController", "listOwners")
                 ),
                 List.of(),
                 List.of(),
@@ -66,6 +70,18 @@ class PlantUmlOutputTest {
         String sequenceContent = Files.readString(sequence);
         assertThat(sequenceContent).contains("Client -> OwnerController : HTTP request");
         assertThat(sequenceContent).contains("OwnerService -> OwnerRepository : query/persist");
+
+        Path endpointFlow = outputDir.resolve("endpoint-flow.puml");
+        assertThat(endpointFlow).exists();
+        String endpointFlowContent = Files.readString(endpointFlow);
+        assertThat(endpointFlowContent).contains("GET /owners");
+        assertThat(endpointFlowContent).contains("OwnerController");
+
+        Path endpointSequence = outputDir.resolve("endpoint-sequence.puml");
+        assertThat(endpointSequence).exists();
+        String endpointSequenceContent = Files.readString(endpointSequence);
+        assertThat(endpointSequenceContent).contains("Client -> OwnerController : GET /owners");
+        assertThat(endpointSequenceContent).contains("OwnerController -> OwnerService : listOwners()");
     }
 
     @Test
@@ -77,6 +93,9 @@ class PlantUmlOutputTest {
                 List.of(),
                 List.of(
                         new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerEntity")
+                ),
+                List.of(
+                        new EndpointFlow("GET", "/owners/{id}", "com.example.petclinic.OwnerController", "getOwner")
                 ),
                 List.of(),
                 List.of(),

@@ -2,6 +2,7 @@ package fr.geoking.archimo.extract;
 
 import fr.geoking.archimo.extract.model.CommandFlow;
 import fr.geoking.archimo.extract.model.ClassDependency;
+import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.ModuleDependency;
@@ -78,6 +79,7 @@ public final class ModulithExtractor {
         // 2. Advanced scanners
         List<ArchitectureInfo> architectureInfos = new ArrayList<>();
         List<ClassDependency> classDependencies = new ArrayList<>();
+        List<EndpointFlow> endpointFlows = new ArrayList<>();
         List<MessagingFlow> messagingFlows = new ArrayList<>();
         if (projectDir != null) {
             Path classesPath = findClassesPath(projectDir);
@@ -86,6 +88,7 @@ public final class ModulithExtractor {
                 ArchitectureScanner architectureScanner = new ArchitectureScanner();
                 architectureInfos = architectureScanner.scan(classes);
                 classDependencies = architectureScanner.scanClassDependencies(classes, architectureInfos);
+                endpointFlows = new EndpointScanner().scan(classes);
                 messagingFlows = new MessagingScanner().scan(classes);
             }
         }
@@ -93,7 +96,7 @@ public final class ModulithExtractor {
 
         ExtractResult result = new ExtractResult(
                 eventsMap, flows, sequences, moduleDependencies, classDependencies,
-                commandFlows, messagingFlows, bpmnFlows, architectureInfos, fullDependencyMode
+                endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos, fullDependencyMode
         );
 
         // 3. Delegate diagram outputs to pluggable writers (PlantUML, Mermaid, …)
@@ -113,6 +116,7 @@ public final class ModulithExtractor {
         objectMapper.writeValue(jsonDir.resolve("sequences.json").toFile(), sequences);
         objectMapper.writeValue(jsonDir.resolve("module-dependencies.json").toFile(), moduleDependencies);
         objectMapper.writeValue(jsonDir.resolve("class-dependencies.json").toFile(), classDependencies);
+        objectMapper.writeValue(jsonDir.resolve("endpoint-flows.json").toFile(), endpointFlows);
         objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
 
         return result;

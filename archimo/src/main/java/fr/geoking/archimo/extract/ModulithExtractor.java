@@ -3,6 +3,7 @@ package fr.geoking.archimo.extract;
 import fr.geoking.archimo.extract.model.CommandFlow;
 import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
+import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.ModuleDependency;
@@ -79,6 +80,7 @@ public final class ModulithExtractor {
         // 2. Advanced scanners
         List<ArchitectureInfo> architectureInfos = new ArrayList<>();
         List<ClassDependency> classDependencies = new ArrayList<>();
+        List<EntityRelation> entityRelations = new ArrayList<>();
         List<EndpointFlow> endpointFlows = new ArrayList<>();
         List<MessagingFlow> messagingFlows = new ArrayList<>();
         if (projectDir != null) {
@@ -88,6 +90,7 @@ public final class ModulithExtractor {
                 ArchitectureScanner architectureScanner = new ArchitectureScanner();
                 architectureInfos = architectureScanner.scan(classes);
                 classDependencies = architectureScanner.scanClassDependencies(classes, architectureInfos);
+                entityRelations = architectureScanner.scanEntityRelations(classes);
                 endpointFlows = new EndpointScanner().scan(classes);
                 messagingFlows = new MessagingScanner().scan(classes);
             }
@@ -95,7 +98,7 @@ public final class ModulithExtractor {
         List<BpmnFlow> bpmnFlows = new BpmnScanner().scan(projectDir);
 
         ExtractResult result = new ExtractResult(
-                eventsMap, flows, sequences, moduleDependencies, classDependencies,
+                eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,
                 endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos, fullDependencyMode
         );
 
@@ -116,6 +119,7 @@ public final class ModulithExtractor {
         objectMapper.writeValue(jsonDir.resolve("sequences.json").toFile(), sequences);
         objectMapper.writeValue(jsonDir.resolve("module-dependencies.json").toFile(), moduleDependencies);
         objectMapper.writeValue(jsonDir.resolve("class-dependencies.json").toFile(), classDependencies);
+        objectMapper.writeValue(jsonDir.resolve("entity-relations.json").toFile(), entityRelations);
         objectMapper.writeValue(jsonDir.resolve("endpoint-flows.json").toFile(), endpointFlows);
         objectMapper.writeValue(jsonDir.resolve("endpoint-sequences.json").toFile(), buildEndpointSequencesIndex(endpointFlows));
         objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
@@ -405,6 +409,11 @@ public final class ModulithExtractor {
                                 level = "endpoint";
                                 category = "flow";
                                 navLabel = "Endpoint flow";
+                            } else if ("entity-relationship".equals(id)) {
+                                c4Level = 4;
+                                level = "code";
+                                category = "data";
+                                navLabel = "Entity relationship";
                             } else {
                                 c4Level = 3;
                                 level = "component";
@@ -450,6 +459,10 @@ public final class ModulithExtractor {
                                     level = "endpoint";
                                     category = "flow";
                                     navLabel = "Endpoint flow";
+                                } else if ("entity-relationship".equals(id)) {
+                                    level = "code";
+                                    category = "data";
+                                    navLabel = "Entity relationship";
                                 } else {
                                     level = "mermaid";
                                     category = id.startsWith("sequence-") ? "sequence" : id.equals("event-flows") ? "flow" : "dependencies";

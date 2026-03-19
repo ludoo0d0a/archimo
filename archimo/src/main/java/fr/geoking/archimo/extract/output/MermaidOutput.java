@@ -4,6 +4,7 @@ import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
+import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.MessagingFlow;
@@ -32,6 +33,7 @@ public final class MermaidOutput implements DiagramOutput {
         writeMermaidSequences(outputDir, flows);
         writeMermaidModuleDependencies(outputDir, deps);
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
+        writeEntityRelationshipDiagram(outputDir, result.entityRelations());
         writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies(), result.fullDependencyMode());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
         writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
@@ -226,6 +228,35 @@ public final class MermaidOutput implements DiagramOutput {
         appendLayerNode(m, byLayer, "infrastructure", "Infrastructure");
         appendLayerFlowEdges(m, byLayer);
         Files.writeString(mermaidDir.resolve("architecture-flow.mmd"), m.toString());
+    }
+
+    private void writeEntityRelationshipDiagram(Path outputDir, List<EntityRelation> relations) throws IOException {
+        if (relations == null || relations.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+        StringBuilder m = new StringBuilder();
+        m.append("%% Entity relationship diagram inferred from JPA annotations\n");
+        m.append("classDiagram\n");
+        List<String> declared = new ArrayList<>();
+        for (EntityRelation relation : relations) {
+            String from = sanitizeId(relation.fromEntity());
+            String to = sanitizeId(relation.toEntity());
+            if (!declared.contains(from)) {
+                m.append("  class ").append(from).append(" {\n");
+                m.append("    <<Entity>>\n");
+                m.append("  }\n");
+                declared.add(from);
+            }
+            if (!declared.contains(to)) {
+                m.append("  class ").append(to).append(" {\n");
+                m.append("    <<Entity>>\n");
+                m.append("  }\n");
+                declared.add(to);
+            }
+            m.append("  ").append(from).append(" ").append(mermaidRelationArrow(relation.relationType())).append(" ").append(to)
+                    .append(" : ").append(relation.relationType()).append("\n");
+        }
+        Files.writeString(mermaidDir.resolve("entity-relationship.mmd"), m.toString());
     }
 
     private void writeArchitectureSequenceDiagram(Path outputDir, List<ArchitectureInfo> infos, List<ClassDependency> classDependencies) throws IOException {
@@ -459,6 +490,16 @@ public final class MermaidOutput implements DiagramOutput {
     private static String sanitizeId(String s) {
         if (s == null) return "null";
         return s.replaceAll("[^a-zA-Z0-9_]", "_");
+    }
+
+    private static String mermaidRelationArrow(String relationType) {
+        return switch (relationType) {
+            case "one-to-many" -> "\"1\" --> \"*\"";
+            case "many-to-one" -> "\"*\" --> \"1\"";
+            case "one-to-one" -> "\"1\" --> \"1\"";
+            case "many-to-many" -> "\"*\" --> \"*\"";
+            default -> "-->";
+        };
     }
 }
 

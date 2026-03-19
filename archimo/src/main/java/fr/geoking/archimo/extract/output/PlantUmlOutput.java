@@ -10,6 +10,7 @@ import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
+import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 
 import java.io.IOException;
@@ -39,6 +40,7 @@ public final class PlantUmlOutput implements DiagramOutput {
 
         writeArchitectureDiagram(outputDir, result.architectureInfos());
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
+        writeEntityRelationshipDiagram(outputDir, result.entityRelations());
         writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies(), result.fullDependencyMode());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
         writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
@@ -130,6 +132,29 @@ public final class PlantUmlOutput implements DiagramOutput {
         appendLayerFlowEdges(p, byLayer);
         p.append("@enduml");
         Files.writeString(outputDir.resolve("architecture-flow.puml"), p.toString());
+    }
+
+    private void writeEntityRelationshipDiagram(Path outputDir, List<EntityRelation> relations) throws IOException {
+        if (relations == null || relations.isEmpty()) return;
+        StringBuilder p = new StringBuilder();
+        p.append("@startuml\n");
+        p.append("title Entity Relationship Diagram\n");
+        p.append("hide empty members\n");
+        Map<String, String> entities = new LinkedHashMap<>();
+        for (EntityRelation relation : relations) {
+            entities.putIfAbsent(relation.fromEntity(), simpleName(relation.fromEntity()));
+            entities.putIfAbsent(relation.toEntity(), simpleName(relation.toEntity()));
+        }
+        for (Map.Entry<String, String> e : entities.entrySet()) {
+            p.append("class ").append(toId(e.getKey())).append(" as \"").append(e.getValue()).append("\" <<Entity>>\n");
+        }
+        for (EntityRelation relation : relations) {
+            String arrow = relationArrow(relation.relationType());
+            p.append(toId(relation.fromEntity())).append(" ").append(arrow).append(" ").append(toId(relation.toEntity()))
+                    .append(" : ").append(relation.relationType()).append("\n");
+        }
+        p.append("@enduml");
+        Files.writeString(outputDir.resolve("entity-relationship.puml"), p.toString());
     }
 
     private void writeArchitectureSequenceDiagram(Path outputDir, List<ArchitectureInfo> infos, List<ClassDependency> classDependencies) throws IOException {
@@ -350,6 +375,16 @@ public final class PlantUmlOutput implements DiagramOutput {
     private static String capitalize(String value) {
         if (value == null || value.isBlank()) return value;
         return Character.toUpperCase(value.charAt(0)) + value.substring(1);
+    }
+
+    private static String relationArrow(String relationType) {
+        return switch (relationType) {
+            case "one-to-many" -> "\"1\" --> \"*\"";
+            case "many-to-one" -> "\"*\" --> \"1\"";
+            case "one-to-one" -> "\"1\" --> \"1\"";
+            case "many-to-many" -> "\"*\" --> \"*\"";
+            default -> "-->";
+        };
     }
 
     private void writeMessagingDiagram(Path outputDir, List<MessagingFlow> flows) throws IOException {

@@ -3,6 +3,7 @@ package fr.geoking.archimo.extract.output;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
+import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -28,6 +29,9 @@ class PlantUmlOutputTest {
                 List.of(
                         new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerService"),
                         new ClassDependency("com.example.petclinic.OwnerService", "com.example.petclinic.OwnerRepository")
+                ),
+                List.of(
+                        new EntityRelation("com.example.petclinic.Owner", "com.example.petclinic.Pet", "one-to-many")
                 ),
                 List.of(
                         new EndpointFlow("GET", "/owners", "com.example.petclinic.OwnerController", "listOwners"),
@@ -59,6 +63,13 @@ class PlantUmlOutputTest {
         String componentContent = Files.readString(component);
         assertThat(componentContent).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerService");
         assertThat(componentContent).contains("com_example_petclinic_OwnerService --> com_example_petclinic_OwnerRepository");
+
+        Path entityRelationship = outputDir.resolve("entity-relationship.puml");
+        assertThat(entityRelationship).exists();
+        String entityRelationshipContent = Files.readString(entityRelationship);
+        assertThat(entityRelationshipContent).contains("Owner");
+        assertThat(entityRelationshipContent).contains("Pet");
+        assertThat(entityRelationshipContent).contains("one-to-many");
 
         Path flow = outputDir.resolve("architecture-flow.puml");
         assertThat(flow).exists();
@@ -98,6 +109,7 @@ class PlantUmlOutputTest {
                 List.of(
                         new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerEntity")
                 ),
+                List.of(),
                 List.of(
                         new EndpointFlow("GET", "/owners/{id}", "com.example.petclinic.OwnerController", "getOwner")
                 ),

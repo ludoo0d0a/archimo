@@ -7,6 +7,7 @@ import fr.geoking.archimo.extract.model.SequenceFlow;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
+import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.output.MermaidOutput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,6 +37,7 @@ class MermaidOutputTest {
                 frSequences, // sequences
                 frDeps,      // moduleDependencies
                 List.of(),   // classDependencies
+                List.of(),   // entityRelations
                 List.of(),   // endpointFlows
                 List.of(),   // commandFlows
                 List.of(),   // messagingFlows
@@ -65,6 +67,9 @@ class MermaidOutputTest {
                         new ClassDependency("com.example.petclinic.OwnerService", "com.example.petclinic.OwnerRepository")
                 ),
                 List.of(
+                        new EntityRelation("com.example.petclinic.Owner", "com.example.petclinic.Pet", "one-to-many")
+                ),
+                List.of(
                         new EndpointFlow("GET", "/owners", "com.example.petclinic.OwnerController", "listOwners"),
                         new EndpointFlow("POST", "/owners", "com.example.petclinic.OwnerController", "createOwner")
                 ),
@@ -92,6 +97,10 @@ class MermaidOutputTest {
         String componentMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-component-dependencies.mmd"));
         assertThat(componentMmd).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerService");
         assertThat(componentMmd).contains("com_example_petclinic_OwnerService --> com_example_petclinic_OwnerRepository");
+        String entityMmd = Files.readString(outputDir.resolve("mermaid").resolve("entity-relationship.mmd"));
+        assertThat(entityMmd).contains("com_example_petclinic_Owner");
+        assertThat(entityMmd).contains("com_example_petclinic_Pet");
+        assertThat(entityMmd).contains("one-to-many");
 
         String flowMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-flow.mmd"));
         assertThat(flowMmd).contains("Controller --> Service");
@@ -121,6 +130,7 @@ class MermaidOutputTest {
                 List.of(
                         new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerEntity")
                 ),
+                List.of(),
                 List.of(
                         new EndpointFlow("GET", "/owners/{id}", "com.example.petclinic.OwnerController", "getOwner")
                 ),

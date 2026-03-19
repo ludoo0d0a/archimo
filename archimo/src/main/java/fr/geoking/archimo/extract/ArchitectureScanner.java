@@ -3,8 +3,10 @@ package fr.geoking.archimo.extract;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.Dependency;
+import com.tngtech.archunit.core.domain.JavaField;
 import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
+import fr.geoking.archimo.extract.model.EntityRelation;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -56,6 +58,38 @@ public class ArchitectureScanner {
         return dependencies;
     }
 
+    public List<EntityRelation> scanEntityRelations(JavaClasses classes) {
+        Set<String> entityTypes = new LinkedHashSet<>();
+        for (JavaClass clazz : classes) {
+            if (isEntity(clazz)) {
+                entityTypes.add(clazz.getFullName());
+            }
+        }
+
+        List<EntityRelation> relations = new ArrayList<>();
+        Set<String> unique = new LinkedHashSet<>();
+        for (JavaClass entity : classes) {
+            if (!entityTypes.contains(entity.getFullName())) {
+                continue;
+            }
+            for (JavaField field : entity.getFields()) {
+                String relationType = relationType(field);
+                if (relationType == null) {
+                    continue;
+                }
+                String target = field.getRawType().getFullName();
+                if (!entityTypes.contains(target) || target.equals(entity.getFullName())) {
+                    continue;
+                }
+                String key = entity.getFullName() + "->" + target + ":" + relationType;
+                if (unique.add(key)) {
+                    relations.add(new EntityRelation(entity.getFullName(), target, relationType));
+                }
+            }
+        }
+        return relations;
+    }
+
     private String identifyLayer(JavaClass clazz) {
         if (clazz.isAnnotatedWith("org.springframework.stereotype.Controller") ||
             clazz.isAnnotatedWith("org.springframework.web.bind.annotation.RestController")) {
@@ -88,5 +122,26 @@ public class ArchitectureScanner {
             return "hexagonal";
         }
         return "mvc";
+    }
+
+    private boolean isEntity(JavaClass clazz) {
+        return clazz.isAnnotatedWith("jakarta.persistence.Entity")
+                || clazz.isAnnotatedWith("javax.persistence.Entity");
+    }
+
+    private String relationType(JavaField field) {
+        if (field.isAnnotatedWith("jakarta.persistence.OneToMany") || field.isAnnotatedWith("javax.persistence.OneToMany")) {
+            return "one-to-many";
+        }
+        if (field.isAnnotatedWith("jakarta.persistence.ManyToOne") || field.isAnnotatedWith("javax.persistence.ManyToOne")) {
+            return "many-to-one";
+        }
+        if (field.isAnnotatedWith("jakarta.persistence.OneToOne") || field.isAnnotatedWith("javax.persistence.OneToOne")) {
+            return "one-to-one";
+        }
+        if (field.isAnnotatedWith("jakarta.persistence.ManyToMany") || field.isAnnotatedWith("javax.persistence.ManyToMany")) {
+            return "many-to-many";
+        }
+        return null;
     }
 }

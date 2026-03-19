@@ -1,6 +1,7 @@
 package fr.geoking.archimo.extract.output;
 
 import fr.geoking.archimo.extract.model.BpmnFlow;
+import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.MessagingFlow;
@@ -28,6 +29,7 @@ public final class MermaidOutput implements DiagramOutput {
         writeMermaidEventAndCommandFlows(outputDir, flows);
         writeMermaidSequences(outputDir, flows);
         writeMermaidModuleDependencies(outputDir, deps);
+        writeArchitectureClassDiagram(outputDir, result.architectureInfos());
         writeMessagingFlows(outputDir, result.messagingFlows());
         writeBpmnSequences(outputDir, result.bpmnFlows());
     }
@@ -38,6 +40,13 @@ public final class MermaidOutput implements DiagramOutput {
         StringBuilder m = new StringBuilder();
         m.append("%% Events and commands (command = name contains 'Command'); different color and shape\n");
         m.append("flowchart LR\n");
+        if (flows == null || flows.isEmpty()) {
+            // Keep the diagram renderable in the SPA even when Petclinic (or other
+            // apps) doesn't expose Modulith event flows.
+            m.append("  noEventFlows[\"No event flows discovered\"]\n");
+            Files.writeString(mermaidDir.resolve("event-flows.mmd"), m.toString());
+            return;
+        }
         List<String> eventNodeIds = new ArrayList<>();
         List<String> commandNodeIds = new ArrayList<>();
         for (EventFlow f : flows) {
@@ -100,6 +109,14 @@ public final class MermaidOutput implements DiagramOutput {
         StringBuilder m = new StringBuilder();
         m.append("%% Module dependencies\n");
         m.append("flowchart LR\n");
+        if (deps == null || deps.isEmpty()) {
+            // Keep the diagram renderable in the SPA even when no Modulith
+            // module relationships are available for the configured dependency
+            // kinds.
+            m.append("  noModuleDependencies[\"No module dependencies discovered\"]\n");
+            Files.writeString(dir.resolve("module-dependencies.mmd"), m.toString());
+            return;
+        }
         for (ModuleDependency d : deps) {
             m.append("  ").append(sanitizeId(d.fromModule())).append(" --> ").append(sanitizeId(d.toModule())).append("\n");
         }
@@ -121,6 +138,68 @@ public final class MermaidOutput implements DiagramOutput {
             }
         }
         Files.writeString(mermaidDir.resolve("messaging-flows.mmd"), m.toString());
+    }
+
+    /**
+     * Fallback class-level architecture diagram for non-Modulith projects.
+     * It groups scanned classes by layer and exposes controller->service->repository flow.
+     */
+    private void writeArchitectureClassDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
+        if (infos == null || infos.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+
+        Map<String, List<ArchitectureInfo>> byLayer = new HashMap<>();
+        for (ArchitectureInfo info : infos) {
+            byLayer.computeIfAbsent(info.layer(), k -> new ArrayList<>()).add(info);
+        }
+
+        StringBuilder m = new StringBuilder();
+        m.append("%% Class architecture fallback (non-Modulith)\n");
+        m.append("flowchart LR\n");
+
+        for (Map.Entry<String, List<ArchitectureInfo>> entry : byLayer.entrySet()) {
+            for (ArchitectureInfo info : entry.getValue()) {
+                String id = sanitizeId(info.className());
+                String label = simpleName(info.className());
+                m.append("  ").append(id).append("[\"").append(label).append("\"]\n");
+            }
+        }
+
+        for (ArchitectureInfo c : byLayer.getOrDefault("controller", List.of())) {
+            for (ArchitectureInfo s : byLayer.getOrDefault("service", List.of())) {
+                m.append("  ").append(sanitizeId(c.className())).append(" --> ").append(sanitizeId(s.className())).append("\n");
+            }
+        }
+        for (ArchitectureInfo s : byLayer.getOrDefault("service", List.of())) {
+            for (ArchitectureInfo r : byLayer.getOrDefault("repository", List.of())) {
+                m.append("  ").append(sanitizeId(s.className())).append(" --> ").append(sanitizeId(r.className())).append("\n");
+            }
+        }
+
+        m.append("  classDef controller fill:#e3f2fd,stroke:#1565c0,stroke-width:2px\n");
+        m.append("  classDef service fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px\n");
+        m.append("  classDef repository fill:#fff3e0,stroke:#ef6c00,stroke-width:2px\n");
+        applyLayerClass(m, byLayer, "controller");
+        applyLayerClass(m, byLayer, "service");
+        applyLayerClass(m, byLayer, "repository");
+
+        Files.writeString(mermaidDir.resolve("architecture-class-diagram.mmd"), m.toString());
+    }
+
+    private void applyLayerClass(StringBuilder m, Map<String, List<ArchitectureInfo>> byLayer, String layer) {
+        List<ArchitectureInfo> infos = byLayer.getOrDefault(layer, List.of());
+        if (infos.isEmpty()) return;
+        List<String> ids = new ArrayList<>();
+        for (ArchitectureInfo info : infos) {
+            ids.add(sanitizeId(info.className()));
+        }
+        m.append("  class ").append(String.join(",", ids)).append(" ").append(layer).append("\n");
+    }
+
+    private static String simpleName(String fqcn) {
+        int idx = fqcn.lastIndexOf('.');
+        return idx >= 0 ? fqcn.substring(idx + 1) : fqcn;
     }
 
     private void writeBpmnSequences(Path outputDir, List<BpmnFlow> flows) throws IOException {

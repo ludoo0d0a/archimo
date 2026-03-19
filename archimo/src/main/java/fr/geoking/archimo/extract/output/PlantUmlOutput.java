@@ -13,7 +13,10 @@ import fr.geoking.archimo.extract.model.MessagingFlow;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Writes PlantUML C4 diagrams and module canvases using Spring Modulith's Documenter.
@@ -33,6 +36,7 @@ public final class PlantUmlOutput implements DiagramOutput {
         }
 
         writeArchitectureDiagram(outputDir, result.architectureInfos());
+        writeArchitectureClassDiagram(outputDir, result.architectureInfos());
         writeMessagingDiagram(outputDir, result.messagingFlows());
         writeBpmnDiagram(outputDir, result.bpmnFlows());
     }
@@ -49,6 +53,71 @@ public final class PlantUmlOutput implements DiagramOutput {
         }
         p.append("@enduml");
         Files.writeString(outputDir.resolve("architecture-layers.puml"), p.toString());
+    }
+
+    /**
+     * Fallback class-level architecture diagram for non-Modulith projects.
+     * It groups scanned classes by layer and always exposes a readable
+     * controller -> service -> repository flow when those layers exist.
+     */
+    private void writeArchitectureClassDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
+        if (infos.isEmpty()) return;
+
+        Map<String, List<ArchitectureInfo>> byLayer = new LinkedHashMap<>();
+        for (ArchitectureInfo info : infos) {
+            byLayer.computeIfAbsent(info.layer(), k -> new ArrayList<>()).add(info);
+        }
+
+        StringBuilder p = new StringBuilder();
+        p.append("@startuml\n");
+        p.append("title Class Architecture (Controller-Service-Repository)\n");
+        p.append("skinparam packageStyle rectangle\n");
+        p.append("hide empty members\n");
+
+        for (Map.Entry<String, List<ArchitectureInfo>> layerEntry : byLayer.entrySet()) {
+            String layer = layerEntry.getKey();
+            p.append("package \"").append(capitalize(layer)).append("\" {\n");
+            for (ArchitectureInfo info : layerEntry.getValue()) {
+                p.append("  class ").append(toId(info.className()))
+                        .append(" as \"").append(simpleName(info.className())).append("\"\n");
+            }
+            p.append("}\n");
+        }
+
+        // Provide readable architectural flow, even if concrete type dependencies
+        // are not extracted from bytecode yet.
+        if (byLayer.containsKey("controller") && byLayer.containsKey("service")) {
+            p.append("Controller ..> Service : uses\n");
+        }
+        if (byLayer.containsKey("service") && byLayer.containsKey("repository")) {
+            p.append("Service ..> Repository : uses\n");
+        }
+        if (byLayer.containsKey("service") && byLayer.containsKey("domain")) {
+            p.append("Service ..> Domain : manipulates\n");
+        }
+        if (byLayer.containsKey("controller") && byLayer.containsKey("application")) {
+            p.append("Controller ..> Application : orchestrates\n");
+        }
+        if (byLayer.containsKey("application") && byLayer.containsKey("infrastructure")) {
+            p.append("Application ..> Infrastructure : delegates\n");
+        }
+
+        p.append("@enduml");
+        Files.writeString(outputDir.resolve("architecture-class-diagram.puml"), p.toString());
+    }
+
+    private static String simpleName(String fqcn) {
+        int idx = fqcn.lastIndexOf('.');
+        return idx >= 0 ? fqcn.substring(idx + 1) : fqcn;
+    }
+
+    private static String toId(String fqcn) {
+        return fqcn.replaceAll("[^a-zA-Z0-9_]", "_");
+    }
+
+    private static String capitalize(String value) {
+        if (value == null || value.isBlank()) return value;
+        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
     }
 
     private void writeMessagingDiagram(Path outputDir, List<MessagingFlow> flows) throws IOException {

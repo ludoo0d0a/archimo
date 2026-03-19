@@ -154,7 +154,12 @@ public final class ModulithExtractor {
         List<ModuleDependency> list = new ArrayList<>();
         for (ApplicationModule module : modules) {
             var deps = module.getDirectDependencies(modules,
-                    DependencyType.USES_COMPONENT, DependencyType.ENTITY, DependencyType.EVENT_LISTENER);
+                    // DEFAULT captures module-level relationships that aren't specifically
+                    // "uses component / entity / event listener" in Petclinic and other samples.
+                    DependencyType.DEFAULT,
+                    DependencyType.USES_COMPONENT,
+                    DependencyType.ENTITY,
+                    DependencyType.EVENT_LISTENER);
             deps.stream()
                     .map(ApplicationModuleDependency::getTargetModule)
                     .map(ApplicationModule::getDisplayName)

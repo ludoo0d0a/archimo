@@ -271,6 +271,12 @@ main {
   border-color: #f59e0b;
 }
 
+.endpoint-badge-data {
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-color: #60a5fa;
+}
+
 body.dark-mode .endpoint-badge-seq {
   color: #99f6e4;
   background: #134e4a;
@@ -281,6 +287,12 @@ body.dark-mode .endpoint-badge-flow {
   color: #fde68a;
   background: #78350f;
   border-color: #f59e0b;
+}
+
+body.dark-mode .endpoint-badge-data {
+  color: #93c5fd;
+  background: #1d4ed8;
+  border-color: #60a5fa;
 }
 
 .interactive-node:hover rect,

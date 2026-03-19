@@ -237,10 +237,17 @@
         a.href = '#';
         const label = `${ep.httpMethod || 'REQUEST'} ${ep.path || '/'}`;
         const coverage = endpointCoverage(ep);
-        a.innerHTML = `${escapeHtml(label)} <span class="endpoint-badge ${coverage === 'SEQ' ? 'endpoint-badge-seq' : 'endpoint-badge-flow'}">${coverage}</span>`;
+        const hasData = endpointHasDataLineage(ep);
+        const dataBadge = hasData ? ` <span class="endpoint-badge endpoint-badge-data" title="Entity lineage">DATA</span>` : '';
+        a.innerHTML = `${escapeHtml(label)} <span class="endpoint-badge ${coverage === 'SEQ' ? 'endpoint-badge-seq' : 'endpoint-badge-flow'}">${coverage}</span>${dataBadge}`;
         a.title = `${label}\n${ep.controllerClass || ''}#${ep.controllerMethod || ''}`;
         a.addEventListener('click', (e) => {
           e.preventDefault();
+          const targetBadge = e.target && e.target.closest ? e.target.closest('.endpoint-badge-data') : null;
+          if (targetBadge) {
+            openEndpointDataLineage(ep);
+            return;
+          }
           openEndpointSequence(ep);
         });
         li.appendChild(a);
@@ -310,6 +317,28 @@
       hasSequence = index.diagrams.some(d => String(d.id || '') === seqId);
     }
     return hasSequence ? 'SEQ' : 'FLOW';
+  }
+
+  function endpointDataLineageDiagramId(endpoint) {
+    if (!endpoint) return null;
+    const raw = `${endpoint.httpMethod || 'REQUEST'}_${endpoint.path || '/'}_${endpoint.controllerMethod || ''}`;
+    const slug = String(raw).replace(/[^a-zA-Z0-9_]/g, '_');
+    return `endpoint-data-lineage-${slug}`;
+  }
+
+  function endpointHasDataLineage(endpoint) {
+    if (!index || !endpoint) return false;
+    const id = endpointDataLineageDiagramId(endpoint);
+    if (!id) return false;
+    return index.diagrams && index.diagrams.some(d => String(d.id || '') === String(id));
+  }
+
+  function openEndpointDataLineage(endpoint) {
+    if (!index || !index.diagrams || !index.diagrams.length) return;
+    const id = endpointDataLineageDiagramId(endpoint);
+    if (!id) return;
+    const direct = index.diagrams.find(d => String(d.id || '') === String(id));
+    if (direct) selectDiagram(direct);
   }
 
   function openEndpointSequence(endpoint) {
@@ -743,8 +772,17 @@
       li.className = 'endpoint-search-item';
       const label = `${e.httpMethod || 'REQUEST'} ${e.path || '/'} — ${shortClassName(e.controllerClass)}#${e.controllerMethod || ''}`;
       const coverage = endpointCoverage(e);
-      li.innerHTML = `${escapeHtml(label)} <span class="endpoint-badge ${coverage === 'SEQ' ? 'endpoint-badge-seq' : 'endpoint-badge-flow'}">${coverage}</span>`;
-      li.onclick = () => openEndpointSequence(e);
+      const hasData = endpointHasDataLineage(e);
+      const dataBadge = hasData ? ` <span class="endpoint-badge endpoint-badge-data" title="Entity lineage">DATA</span>` : '';
+      li.innerHTML = `${escapeHtml(label)} <span class="endpoint-badge ${coverage === 'SEQ' ? 'endpoint-badge-seq' : 'endpoint-badge-flow'}">${coverage}</span>${dataBadge}`;
+      li.onclick = (evt) => {
+        const targetBadge = evt && evt.target && evt.target.closest ? evt.target.closest('.endpoint-badge-data') : null;
+        if (targetBadge) {
+          openEndpointDataLineage(e);
+          return;
+        }
+        openEndpointSequence(e);
+      };
       endpointsEl.appendChild(li);
     });
     commands.forEach(c => {

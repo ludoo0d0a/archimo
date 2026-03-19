@@ -41,6 +41,9 @@ public final class PlantUmlOutput implements DiagramOutput {
         writeArchitectureDiagram(outputDir, result.architectureInfos());
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
         writeEntityRelationshipDiagram(outputDir, result.entityRelations());
+        writeDeploymentDiagram(outputDir, result.architectureInfos(), result.endpointFlows(), result.messagingFlows(), result.entityRelations());
+        writeDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
+        writeEndpointDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
         writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies(), result.fullDependencyMode());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
         writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
@@ -155,6 +158,212 @@ public final class PlantUmlOutput implements DiagramOutput {
         }
         p.append("@enduml");
         Files.writeString(outputDir.resolve("entity-relationship.puml"), p.toString());
+    }
+
+    private void writeDeploymentDiagram(Path outputDir,
+                                        List<ArchitectureInfo> infos,
+                                        List<EndpointFlow> endpointFlows,
+                                        List<MessagingFlow> messagingFlows,
+                                        List<EntityRelation> entityRelations) throws IOException {
+        boolean hasApi = (endpointFlows != null && !endpointFlows.isEmpty()) || containsLayer(infos, "controller");
+        boolean hasDb = containsLayer(infos, "repository") || (entityRelations != null && !entityRelations.isEmpty());
+        boolean hasMessaging = messagingFlows != null && !messagingFlows.isEmpty();
+        if (!hasApi && !hasDb && !hasMessaging) return;
+
+        StringBuilder p = new StringBuilder();
+        p.append("@startuml\n");
+        p.append("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Deployment.puml\n");
+        p.append("title Runtime Deployment View\n");
+        p.append("Deployment_Node(browser, \"Client\", \"Web browser\") {\n");
+        p.append("}\n");
+        p.append("Deployment_Node(platform, \"Runtime Platform\", \"JVM / Spring Boot\") {\n");
+        p.append("  Container(app, \"Application\", \"Spring Boot\")\n");
+        p.append("}\n");
+        if (hasApi) {
+            p.append("Rel(browser, app, \"HTTP\")\n");
+        }
+        if (hasDb) {
+            p.append("Deployment_Node(dbnode, \"Database Node\", \"Relational DB\") {\n");
+            p.append("  ContainerDb(db, \"Application Database\", \"SQL\")\n");
+            p.append("}\n");
+            p.append("Rel(app, db, \"JPA / SQL\")\n");
+        }
+        if (hasMessaging) {
+            p.append("Deployment_Node(msgnode, \"Messaging\", \"Broker\") {\n");
+            p.append("  ContainerQueue(broker, \"Message Broker\", \"Kafka/JMS\")\n");
+            p.append("}\n");
+            p.append("Rel(app, broker, \"Publish/Consume\")\n");
+        }
+        p.append("@enduml");
+        Files.writeString(outputDir.resolve("deployment-diagram.puml"), p.toString());
+    }
+
+    private void writeDataLineageDiagram(Path outputDir,
+                                          List<EndpointFlow> endpointFlows,
+                                          List<ArchitectureInfo> infos,
+                                          List<ClassDependency> classDependencies,
+                                          List<EntityRelation> entityRelations) throws IOException {
+        if (endpointFlows == null || endpointFlows.isEmpty()) return;
+        boolean hasEntities = entityRelations != null && !entityRelations.isEmpty();
+        if (!hasEntities && (infos == null || infos.isEmpty())) return;
+
+        List<ArchitectureInfo> safeInfos = infos == null ? List.of() : infos;
+        List<ClassDependency> safeDeps = classDependencies == null ? List.of() : classDependencies;
+
+        // Extract repository and entity types from extracted artifacts.
+        List<ArchitectureInfo> repositories = safeInfos.stream().filter(i -> "repository".equals(i.layer())).toList();
+        List<ArchitectureInfo> services = safeInfos.stream().filter(i -> "service".equals(i.layer())).toList();
+        List<ArchitectureInfo> controllers = safeInfos.stream().filter(i -> "controller".equals(i.layer())).toList();
+        java.util.Set<String> entityTypes = new java.util.LinkedHashSet<>();
+        if (entityRelations != null) {
+            for (EntityRelation r : entityRelations) {
+                entityTypes.add(r.fromEntity());
+                entityTypes.add(r.toEntity());
+            }
+        }
+
+        if (repositories.isEmpty() && services.isEmpty() && controllers.isEmpty()) return;
+
+        Map<String, List<String>> repoToEntities = new LinkedHashMap<>();
+        for (ClassDependency dep : safeDeps) {
+            if (entityTypes.contains(dep.toClass()) && repositories.stream().anyMatch(r -> r.className().equals(dep.fromClass()))) {
+                repoToEntities.computeIfAbsent(dep.fromClass(), k -> new ArrayList<>()).add(dep.toClass());
+            }
+        }
+
+        StringBuilder p = new StringBuilder();
+        p.append("@startuml\n");
+        p.append("title Data Lineage (Endpoint -> Entities)\n");
+        p.append("actor Client\n");
+
+        // Keep node declarations unique to avoid overly large diagrams.
+        java.util.Set<String> declaredNodes = new java.util.LinkedHashSet<>();
+        for (EndpointFlow endpoint : endpointFlows) {
+            String endpointId = "ep_" + toId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod());
+            String controllerId = toId(endpoint.controllerClass());
+
+            String serviceClass = firstDependencyTarget(endpoint.controllerClass(), services, safeDeps);
+            String repositoryClass = serviceClass == null ? null : firstDependencyTarget(serviceClass, repositories, safeDeps);
+
+            p.append("rectangle \"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\" as ").append(endpointId).append("\n");
+
+            if (declaredNodes.add(controllerId)) {
+                p.append("component \"").append(simpleName(endpoint.controllerClass())).append("\" as ").append(controllerId).append("\n");
+            }
+            p.append("Client --> ").append(endpointId).append("\n");
+            p.append(endpointId).append(" --> ").append(controllerId).append("\n");
+
+            if (serviceClass != null) {
+                String serviceId = toId(serviceClass);
+                if (declaredNodes.add(serviceId)) {
+                    p.append("component \"").append(simpleName(serviceClass)).append("\" as ").append(serviceId).append("\n");
+                }
+                p.append(controllerId).append(" --> ").append(serviceId).append("\n");
+
+                if (repositoryClass != null) {
+                    String repoId = toId(repositoryClass);
+                    if (declaredNodes.add(repoId)) {
+                        p.append("component \"").append(simpleName(repositoryClass)).append("\" as ").append(repoId).append("\n");
+                    }
+                    p.append(serviceId).append(" --> ").append(repoId).append("\n");
+
+                    // Link repository to discovered entities (heuristic via bytecode dependency).
+                    List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
+                    if (!entities.isEmpty()) {
+                        for (String entity : entities) {
+                            String entityId = toId(entity);
+                            if (declaredNodes.add(entityId)) {
+                                p.append("class ").append(entityId).append(" as \"").append(simpleName(entity)).append("\" <<Entity>>\n");
+                            }
+                            p.append(repoId).append(" --> ").append(entityId).append(" : query/persist\n");
+                        }
+                    }
+                }
+            }
+        }
+        p.append("@enduml");
+        Files.writeString(outputDir.resolve("data-lineage-diagram.puml"), p.toString());
+    }
+
+    private void writeEndpointDataLineageDiagram(Path outputDir,
+                                                  List<EndpointFlow> endpointFlows,
+                                                  List<ArchitectureInfo> infos,
+                                                  List<ClassDependency> classDependencies,
+                                                  List<EntityRelation> entityRelations) throws IOException {
+        if (endpointFlows == null || endpointFlows.isEmpty()) return;
+
+        List<ArchitectureInfo> safeInfos = infos == null ? List.of() : infos;
+        List<ClassDependency> safeDeps = classDependencies == null ? List.of() : classDependencies;
+
+        List<ArchitectureInfo> repositories = safeInfos.stream().filter(i -> "repository".equals(i.layer())).toList();
+        List<ArchitectureInfo> services = safeInfos.stream().filter(i -> "service".equals(i.layer())).toList();
+
+        java.util.Set<String> entityTypes = new java.util.LinkedHashSet<>();
+        if (entityRelations != null) {
+            for (EntityRelation r : entityRelations) {
+                entityTypes.add(r.fromEntity());
+                entityTypes.add(r.toEntity());
+            }
+        }
+
+        // Repository -> entities heuristic via bytecode
+        Map<String, List<String>> repoToEntities = new LinkedHashMap<>();
+        for (ClassDependency dep : safeDeps) {
+            if (entityTypes.contains(dep.toClass()) && repositories.stream().anyMatch(r -> r.className().equals(dep.fromClass()))) {
+                repoToEntities.computeIfAbsent(dep.fromClass(), k -> new ArrayList<>()).add(dep.toClass());
+            }
+        }
+
+        for (EndpointFlow endpoint : endpointFlows) {
+            String controllerClass = endpoint.controllerClass();
+            String serviceClass = firstDependencyTarget(controllerClass, services, safeDeps);
+            String repositoryClass = serviceClass == null ? null : firstDependencyTarget(serviceClass, repositories, safeDeps);
+
+            String endpointId = "ep_" + toId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod());
+            String controllerId = toId(controllerClass);
+            String serviceId = serviceClass != null ? toId(serviceClass) : null;
+            String repoId = repositoryClass != null ? toId(repositoryClass) : null;
+
+            StringBuilder p = new StringBuilder();
+            p.append("@startuml\n");
+            p.append("title Endpoint Data Lineage - ").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\n");
+            p.append("hide empty members\n");
+
+            p.append("actor Client\n");
+            p.append("rectangle \"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\" as ").append(endpointId).append("\n");
+            p.append("component \"").append(simpleName(controllerClass)).append("\" as ").append(controllerId).append("\n");
+            p.append("Client --> ").append(endpointId).append("\n");
+            p.append(endpointId).append(" --> ").append(controllerId).append("\n");
+
+            if (serviceClass != null) {
+                p.append("component \"").append(simpleName(serviceClass)).append("\" as ").append(serviceId).append("\n");
+                p.append(controllerId).append(" --> ").append(serviceId).append("\n");
+            }
+            if (repositoryClass != null) {
+                p.append("component \"").append(simpleName(repositoryClass)).append("\" as ").append(repoId).append("\n");
+                p.append((serviceId != null ? serviceId : controllerId)).append(" --> ").append(repoId).append("\n");
+
+                List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
+                if (!entities.isEmpty()) {
+                    for (String entity : entities) {
+                        String entityId = toId(entity);
+                        p.append("class ").append(entityId).append(" as \"").append(simpleName(entity)).append("\" <<Entity>>\n");
+                        p.append(repoId).append(" --> ").append(entityId).append(" : query/persist\n");
+                    }
+                } else {
+                    p.append("note \"No entity lineage discovered\" as noEntity\n");
+                    p.append(repoId).append(" ..> noEntity\n");
+                }
+            } else {
+                p.append("note \"No repository discovered\" as noRepo\n");
+                p.append(controllerId).append(" ..> noRepo\n");
+            }
+
+            p.append("@enduml");
+
+            String sequenceFileName = "endpoint-data-lineage-" + toId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod()) + ".puml";
+            Files.writeString(outputDir.resolve(sequenceFileName), p.toString());
+        }
     }
 
     private void writeArchitectureSequenceDiagram(Path outputDir, List<ArchitectureInfo> infos, List<ClassDependency> classDependencies) throws IOException {
@@ -375,6 +584,11 @@ public final class PlantUmlOutput implements DiagramOutput {
     private static String capitalize(String value) {
         if (value == null || value.isBlank()) return value;
         return Character.toUpperCase(value.charAt(0)) + value.substring(1);
+    }
+
+    private static boolean containsLayer(List<ArchitectureInfo> infos, String layer) {
+        if (infos == null || infos.isEmpty()) return false;
+        return infos.stream().anyMatch(i -> layer.equals(i.layer()));
     }
 
     private static String relationArrow(String relationType) {

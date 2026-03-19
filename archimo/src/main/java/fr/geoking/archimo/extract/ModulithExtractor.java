@@ -409,11 +409,26 @@ public final class ModulithExtractor {
                                 level = "endpoint";
                                 category = "flow";
                                 navLabel = "Endpoint flow";
+                            } else if (id.startsWith("endpoint-data-lineage-")) {
+                                c4Level = 0;
+                                level = "endpoint";
+                                category = "data";
+                                navLabel = formatEndpointDataLineageLabel(id);
+                            } else if ("data-lineage-diagram".equals(id)) {
+                                c4Level = 4;
+                                level = "code";
+                                category = "data";
+                                navLabel = "Data lineage";
                             } else if ("entity-relationship".equals(id)) {
                                 c4Level = 4;
                                 level = "code";
                                 category = "data";
                                 navLabel = "Entity relationship";
+                            } else if ("deployment-diagram".equals(id)) {
+                                c4Level = 2;
+                                level = "container";
+                                category = "deployment";
+                                navLabel = "Deployment diagram";
                             } else {
                                 c4Level = 3;
                                 level = "component";
@@ -459,10 +474,22 @@ public final class ModulithExtractor {
                                     level = "endpoint";
                                     category = "flow";
                                     navLabel = "Endpoint flow";
+                                } else if (id.startsWith("endpoint-data-lineage-")) {
+                                    level = "endpoint";
+                                    category = "data";
+                                    navLabel = formatEndpointDataLineageLabel(id);
+                                } else if ("data-lineage-diagram".equals(id)) {
+                                    level = "code";
+                                    category = "data";
+                                    navLabel = "Data lineage";
                                 } else if ("entity-relationship".equals(id)) {
                                     level = "code";
                                     category = "data";
                                     navLabel = "Entity relationship";
+                                } else if ("deployment-diagram".equals(id)) {
+                                    level = "container";
+                                    category = "deployment";
+                                    navLabel = "Deployment diagram";
                                 } else {
                                     level = "mermaid";
                                     category = id.startsWith("sequence-") ? "sequence" : id.equals("event-flows") ? "flow" : "dependencies";
@@ -504,6 +531,22 @@ public final class ModulithExtractor {
         String path = "/" + pathPart.replaceAll("_+", "/");
         path = path.replaceAll("/+", "/");
         return method + " " + path;
+    }
+
+    private String formatEndpointDataLineageLabel(String id) {
+        // endpoint-data-lineage-GET__owners_listOwners -> GET /owners
+        String prefix = "endpoint-data-lineage-";
+        if (!id.startsWith(prefix)) return id;
+        String slug = id.substring(prefix.length());
+        int firstUnderscore = slug.indexOf('_');
+        if (firstUnderscore <= 0) return id;
+        String method = slug.substring(0, firstUnderscore);
+        String rest = slug.substring(firstUnderscore + 1);
+        int lastUnderscore = rest.lastIndexOf('_');
+        String pathPart = lastUnderscore > 0 ? rest.substring(0, lastUnderscore) : rest;
+        String path = "/" + pathPart.replaceAll("_+", "/");
+        path = path.replaceAll("/+", "/");
+        return method + " " + path + " (data lineage)";
     }
 
     private String eventTypeName(EventType ev) {

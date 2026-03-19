@@ -5,6 +5,7 @@ import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.MessagingFlow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -28,7 +29,8 @@ class PlantUmlOutputTest {
                 List.of(),
                 List.of(
                         new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerService"),
-                        new ClassDependency("com.example.petclinic.OwnerService", "com.example.petclinic.OwnerRepository")
+                        new ClassDependency("com.example.petclinic.OwnerService", "com.example.petclinic.OwnerRepository"),
+                        new ClassDependency("com.example.petclinic.OwnerRepository", "com.example.petclinic.Pet")
                 ),
                 List.of(
                         new EntityRelation("com.example.petclinic.Owner", "com.example.petclinic.Pet", "one-to-many")
@@ -38,7 +40,9 @@ class PlantUmlOutputTest {
                         new EndpointFlow("POST", "/owners", "com.example.petclinic.OwnerController", "createOwner")
                 ),
                 List.of(),
-                List.of(),
+                List.of(
+                        new MessagingFlow("Kafka", "owner-events", "com.example.petclinic.OwnerService", List.of("com.example.petclinic.AuditService"))
+                ),
                 List.of(),
                 List.of(
                         new ArchitectureInfo("com.example.petclinic.OwnerController", "controller", "mvc"),
@@ -70,6 +74,24 @@ class PlantUmlOutputTest {
         assertThat(entityRelationshipContent).contains("Owner");
         assertThat(entityRelationshipContent).contains("Pet");
         assertThat(entityRelationshipContent).contains("one-to-many");
+
+        Path dataLineage = outputDir.resolve("data-lineage-diagram.puml");
+        assertThat(dataLineage).exists();
+        String dataLineageContent = Files.readString(dataLineage);
+        assertThat(dataLineageContent).contains("GET /owners");
+        assertThat(dataLineageContent).contains("com_example_petclinic_OwnerRepository --> com_example_petclinic_Pet");
+
+        Path endpointDataLineageGet = outputDir.resolve("endpoint-data-lineage-GET__owners_listOwners.puml");
+        assertThat(endpointDataLineageGet).exists();
+        String endpointDataLineageGetContent = Files.readString(endpointDataLineageGet);
+        assertThat(endpointDataLineageGetContent).contains("GET /owners");
+        assertThat(endpointDataLineageGetContent).contains("com_example_petclinic_OwnerRepository --> com_example_petclinic_Pet : query/persist");
+        Path deployment = outputDir.resolve("deployment-diagram.puml");
+        assertThat(deployment).exists();
+        String deploymentContent = Files.readString(deployment);
+        assertThat(deploymentContent).contains("Rel(browser, app, \"HTTP\")");
+        assertThat(deploymentContent).contains("ContainerDb(db, \"Application Database\", \"SQL\")");
+        assertThat(deploymentContent).contains("ContainerQueue(broker, \"Message Broker\", \"Kafka/JMS\")");
 
         Path flow = outputDir.resolve("architecture-flow.puml");
         assertThat(flow).exists();

@@ -34,6 +34,9 @@ public final class MermaidOutput implements DiagramOutput {
         writeMermaidModuleDependencies(outputDir, deps);
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
         writeEntityRelationshipDiagram(outputDir, result.entityRelations());
+        writeDeploymentDiagram(outputDir, result.architectureInfos(), result.endpointFlows(), result.messagingFlows(), result.entityRelations());
+        writeDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
+        writeEndpointDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
         writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies(), result.fullDependencyMode());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
         writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
@@ -257,6 +260,197 @@ public final class MermaidOutput implements DiagramOutput {
                     .append(" : ").append(relation.relationType()).append("\n");
         }
         Files.writeString(mermaidDir.resolve("entity-relationship.mmd"), m.toString());
+    }
+
+    private void writeDeploymentDiagram(Path outputDir,
+                                        List<ArchitectureInfo> infos,
+                                        List<EndpointFlow> endpointFlows,
+                                        List<MessagingFlow> messagingFlows,
+                                        List<EntityRelation> entityRelations) throws IOException {
+        boolean hasApi = (endpointFlows != null && !endpointFlows.isEmpty()) || containsLayer(infos, "controller");
+        boolean hasDb = containsLayer(infos, "repository") || (entityRelations != null && !entityRelations.isEmpty());
+        boolean hasMessaging = messagingFlows != null && !messagingFlows.isEmpty();
+        if (!hasApi && !hasDb && !hasMessaging) return;
+
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+        StringBuilder m = new StringBuilder();
+        m.append("%% Runtime deployment view\n");
+        m.append("flowchart LR\n");
+        m.append("  client[\"Client Browser\"]\n");
+        m.append("  app[\"Spring Boot Application\"]\n");
+        if (hasApi) {
+            m.append("  client -->|HTTP| app\n");
+        }
+        if (hasDb) {
+            m.append("  db[(\"Application Database\")]\n");
+            m.append("  app -->|JPA/SQL| db\n");
+        }
+        if (hasMessaging) {
+            m.append("  broker[(\"Message Broker\")]\n");
+            m.append("  app -->|Publish/Consume| broker\n");
+        }
+        Files.writeString(mermaidDir.resolve("deployment-diagram.mmd"), m.toString());
+    }
+
+    private void writeDataLineageDiagram(Path outputDir,
+                                          List<EndpointFlow> endpointFlows,
+                                          List<ArchitectureInfo> infos,
+                                          List<ClassDependency> classDependencies,
+                                          List<EntityRelation> entityRelations) throws IOException {
+        if (endpointFlows == null || endpointFlows.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+
+        List<ArchitectureInfo> safeInfos = infos == null ? List.of() : infos;
+        List<ClassDependency> safeDeps = classDependencies == null ? List.of() : classDependencies;
+
+        List<ArchitectureInfo> repositories = safeInfos.stream().filter(i -> "repository".equals(i.layer())).toList();
+        List<ArchitectureInfo> services = safeInfos.stream().filter(i -> "service".equals(i.layer())).toList();
+
+        java.util.Set<String> entityTypes = new java.util.LinkedHashSet<>();
+        if (entityRelations != null) {
+            for (EntityRelation r : entityRelations) {
+                entityTypes.add(r.fromEntity());
+                entityTypes.add(r.toEntity());
+            }
+        }
+
+        Map<String, List<String>> repoToEntities = new HashMap<>();
+        for (ClassDependency dep : safeDeps) {
+            if (entityTypes.contains(dep.toClass())
+                    && repositories.stream().anyMatch(r -> r.className().equals(dep.fromClass()))) {
+                repoToEntities.computeIfAbsent(dep.fromClass(), k -> new ArrayList<>()).add(dep.toClass());
+            }
+        }
+
+        StringBuilder m = new StringBuilder();
+        m.append("%% Data lineage (Endpoint -> Controller -> Service -> Repository -> Entity)\n");
+        m.append("flowchart LR\n");
+        m.append("  client((Client))\n");
+
+        java.util.Set<String> declaredNodes = new java.util.LinkedHashSet<>();
+
+        for (EndpointFlow endpoint : endpointFlows) {
+            String endpointId = sanitizeId("ep_" + endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod());
+            String controllerId = sanitizeId(endpoint.controllerClass());
+            String serviceClass = firstDependencyTarget(endpoint.controllerClass(), services, safeDeps);
+            String repositoryClass = serviceClass == null ? null : firstDependencyTarget(serviceClass, repositories, safeDeps);
+
+            m.append("  ").append(endpointId).append("[\"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\"]\n");
+
+            if (declaredNodes.add(controllerId)) {
+                m.append("  ").append(controllerId).append("[\"").append(simpleName(endpoint.controllerClass())).append("\"]\n");
+            }
+            m.append("  client --> ").append(endpointId).append("\n");
+            m.append("  ").append(endpointId).append(" --> ").append(controllerId).append("\n");
+
+            if (serviceClass != null) {
+                String serviceId = sanitizeId(serviceClass);
+                if (declaredNodes.add(serviceId)) {
+                    m.append("  ").append(serviceId).append("[\"").append(simpleName(serviceClass)).append("\"]\n");
+                }
+                m.append("  ").append(controllerId).append(" --> ").append(serviceId).append("\n");
+
+                if (repositoryClass != null) {
+                    String repoId = sanitizeId(repositoryClass);
+                    if (declaredNodes.add(repoId)) {
+                        m.append("  ").append(repoId).append("[\"").append(simpleName(repositoryClass)).append("\"]\n");
+                    }
+                    m.append("  ").append(serviceId).append(" --> ").append(repoId).append("\n");
+
+                    List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
+                    for (String entity : entities) {
+                        String entityId = sanitizeId(entity);
+                        if (declaredNodes.add(entityId)) {
+                            m.append("  ").append(entityId).append("[\"").append(simpleName(entity)).append("\"]\n");
+                        }
+                        m.append("  ").append(repoId).append(" --> ").append(entityId).append("\n");
+                    }
+                }
+            }
+        }
+        Files.writeString(mermaidDir.resolve("data-lineage-diagram.mmd"), m.toString());
+    }
+
+    private void writeEndpointDataLineageDiagram(Path outputDir,
+                                                  List<EndpointFlow> endpointFlows,
+                                                  List<ArchitectureInfo> infos,
+                                                  List<ClassDependency> classDependencies,
+                                                  List<EntityRelation> entityRelations) throws IOException {
+        if (endpointFlows == null || endpointFlows.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+
+        List<ArchitectureInfo> safeInfos = infos == null ? List.of() : infos;
+        List<ClassDependency> safeDeps = classDependencies == null ? List.of() : classDependencies;
+
+        List<ArchitectureInfo> repositories = safeInfos.stream().filter(i -> "repository".equals(i.layer())).toList();
+        List<ArchitectureInfo> services = safeInfos.stream().filter(i -> "service".equals(i.layer())).toList();
+
+        java.util.Set<String> entityTypes = new java.util.LinkedHashSet<>();
+        if (entityRelations != null) {
+            for (EntityRelation r : entityRelations) {
+                entityTypes.add(r.fromEntity());
+                entityTypes.add(r.toEntity());
+            }
+        }
+
+        Map<String, List<String>> repoToEntities = new HashMap<>();
+        for (ClassDependency dep : safeDeps) {
+            if (entityTypes.contains(dep.toClass())
+                    && repositories.stream().anyMatch(r -> r.className().equals(dep.fromClass()))) {
+                repoToEntities.computeIfAbsent(dep.fromClass(), k -> new ArrayList<>()).add(dep.toClass());
+            }
+        }
+
+        for (EndpointFlow endpoint : endpointFlows) {
+            String controllerClass = endpoint.controllerClass();
+            String serviceClass = firstDependencyTarget(controllerClass, services, safeDeps);
+            String repositoryClass = serviceClass == null ? null : firstDependencyTarget(serviceClass, repositories, safeDeps);
+
+            String endpointId = sanitizeId("ep_" + endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod());
+            String controllerId = sanitizeId(controllerClass);
+            String serviceId = serviceClass != null ? sanitizeId(serviceClass) : null;
+            String repoId = repositoryClass != null ? sanitizeId(repositoryClass) : null;
+
+            StringBuilder m = new StringBuilder();
+            m.append("%% Endpoint data lineage\n");
+            m.append("flowchart LR\n");
+            m.append("  client((Client))\n");
+            m.append("  ").append(endpointId).append("[\"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\"]\n");
+            m.append("  ").append(controllerId).append("[\"").append(simpleName(controllerClass)).append("\"]\n");
+            m.append("  client --> ").append(endpointId).append("\n");
+            m.append("  ").append(endpointId).append(" --> ").append(controllerId).append("\n");
+
+            if (serviceClass != null) {
+                m.append("  ").append(serviceId).append("[\"").append(simpleName(serviceClass)).append("\"]\n");
+                m.append("  ").append(controllerId).append(" --> ").append(serviceId).append("\n");
+            }
+
+            if (repositoryClass != null) {
+                m.append("  ").append(repoId).append("[\"").append(simpleName(repositoryClass)).append("\"]\n");
+                m.append("  ").append(serviceId != null ? serviceId : controllerId).append(" --> ").append(repoId).append("\n");
+
+                List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
+                if (!entities.isEmpty()) {
+                    for (String entity : entities) {
+                        String entityId = sanitizeId(entity);
+                        m.append("  ").append(entityId).append("[\"").append(simpleName(entity)).append("\"]\n");
+                        m.append("  ").append(repoId).append(" --> ").append(entityId).append("\n");
+                    }
+                } else {
+                    m.append("  noEntity[\"No entity lineage discovered\"]\n");
+                    m.append("  ").append(repoId).append(" -.-> noEntity\n");
+                }
+            } else {
+                m.append("  noRepo[\"No repository discovered\"]\n");
+                m.append("  ").append(controllerId).append(" -.-> noRepo\n");
+            }
+
+            String sequenceFileName = "endpoint-data-lineage-" + sanitizeId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod()) + ".mmd";
+            Files.writeString(mermaidDir.resolve(sequenceFileName), m.toString());
+        }
     }
 
     private void writeArchitectureSequenceDiagram(Path outputDir, List<ArchitectureInfo> infos, List<ClassDependency> classDependencies) throws IOException {
@@ -500,6 +694,11 @@ public final class MermaidOutput implements DiagramOutput {
             case "many-to-many" -> "\"*\" --> \"*\"";
             default -> "-->";
         };
+    }
+
+    private static boolean containsLayer(List<ArchitectureInfo> infos, String layer) {
+        if (infos == null || infos.isEmpty()) return false;
+        return infos.stream().anyMatch(i -> layer.equals(i.layer()));
     }
 }
 

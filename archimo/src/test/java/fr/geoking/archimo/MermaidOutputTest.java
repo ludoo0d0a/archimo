@@ -74,6 +74,14 @@ class MermaidOutputTest {
         assertThat(architectureMmd).contains("OwnerController\"]");
         assertThat(architectureMmd).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerService");
         assertThat(architectureMmd).contains("com_example_petclinic_OwnerService --> com_example_petclinic_OwnerRepository");
+
+        String flowMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-flow.mmd"));
+        assertThat(flowMmd).contains("Controller --> Service");
+        assertThat(flowMmd).contains("Service --> Repository");
+
+        String sequenceMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-sequence.mmd"));
+        assertThat(sequenceMmd).contains("Client->>OwnerController: HTTP request");
+        assertThat(sequenceMmd).contains("OwnerService->>OwnerRepository: query/persist");
     }
 }
 

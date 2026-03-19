@@ -30,6 +30,8 @@ public final class MermaidOutput implements DiagramOutput {
         writeMermaidSequences(outputDir, flows);
         writeMermaidModuleDependencies(outputDir, deps);
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
+        writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
+        writeArchitectureSequenceDiagram(outputDir, result.architectureInfos());
         writeMessagingFlows(outputDir, result.messagingFlows());
         writeBpmnSequences(outputDir, result.bpmnFlows());
     }
@@ -200,6 +202,89 @@ public final class MermaidOutput implements DiagramOutput {
     private static String simpleName(String fqcn) {
         int idx = fqcn.lastIndexOf('.');
         return idx >= 0 ? fqcn.substring(idx + 1) : fqcn;
+    }
+
+    private void writeArchitectureFlowDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
+        if (infos == null || infos.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+
+        Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(infos);
+        StringBuilder m = new StringBuilder();
+        m.append("%% Layer flow fallback (non-Modulith)\n");
+        m.append("flowchart LR\n");
+        appendLayerNode(m, byLayer, "controller", "Controller");
+        appendLayerNode(m, byLayer, "service", "Service");
+        appendLayerNode(m, byLayer, "repository", "Repository");
+        appendLayerNode(m, byLayer, "domain", "Domain");
+        appendLayerNode(m, byLayer, "application", "Application");
+        appendLayerNode(m, byLayer, "infrastructure", "Infrastructure");
+        appendLayerFlowEdges(m, byLayer);
+        Files.writeString(mermaidDir.resolve("architecture-flow.mmd"), m.toString());
+    }
+
+    private void writeArchitectureSequenceDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
+        if (infos == null || infos.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+
+        Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(infos);
+        String controller = firstSimpleName(byLayer, "controller", "Controller");
+        String service = firstSimpleName(byLayer, "service", "Service");
+        String repository = firstSimpleName(byLayer, "repository", "Repository");
+
+        StringBuilder m = new StringBuilder();
+        m.append("%% Request sequence fallback (non-Modulith)\n");
+        m.append("sequenceDiagram\n");
+        m.append("  participant Client\n");
+        m.append("  participant ").append(controller).append("\n");
+        m.append("  participant ").append(service).append("\n");
+        m.append("  participant ").append(repository).append("\n");
+        m.append("  Client->>").append(controller).append(": HTTP request\n");
+        m.append("  ").append(controller).append("->>").append(service).append(": invoke use case\n");
+        m.append("  ").append(service).append("->>").append(repository).append(": query/persist\n");
+        m.append("  ").append(repository).append("-->>").append(service).append(": data\n");
+        m.append("  ").append(service).append("-->>").append(controller).append(": response model\n");
+        m.append("  ").append(controller).append("-->>Client: HTTP response\n");
+        Files.writeString(mermaidDir.resolve("architecture-sequence.mmd"), m.toString());
+    }
+
+    private static Map<String, List<ArchitectureInfo>> groupByLayer(List<ArchitectureInfo> infos) {
+        Map<String, List<ArchitectureInfo>> byLayer = new HashMap<>();
+        for (ArchitectureInfo info : infos) {
+            byLayer.computeIfAbsent(info.layer(), k -> new ArrayList<>()).add(info);
+        }
+        return byLayer;
+    }
+
+    private static void appendLayerNode(StringBuilder m, Map<String, List<ArchitectureInfo>> byLayer, String key, String label) {
+        List<ArchitectureInfo> infos = byLayer.get(key);
+        if (infos == null || infos.isEmpty()) return;
+        m.append("  ").append(label).append("[\"").append(label).append(" (").append(infos.size()).append(" classes)\"]\n");
+    }
+
+    private static void appendLayerFlowEdges(StringBuilder m, Map<String, List<ArchitectureInfo>> byLayer) {
+        if (byLayer.containsKey("controller") && byLayer.containsKey("service")) {
+            m.append("  Controller --> Service\n");
+        }
+        if (byLayer.containsKey("service") && byLayer.containsKey("repository")) {
+            m.append("  Service --> Repository\n");
+        }
+        if (byLayer.containsKey("service") && byLayer.containsKey("domain")) {
+            m.append("  Service --> Domain\n");
+        }
+        if (byLayer.containsKey("controller") && byLayer.containsKey("application")) {
+            m.append("  Controller --> Application\n");
+        }
+        if (byLayer.containsKey("application") && byLayer.containsKey("infrastructure")) {
+            m.append("  Application --> Infrastructure\n");
+        }
+    }
+
+    private static String firstSimpleName(Map<String, List<ArchitectureInfo>> byLayer, String layer, String fallback) {
+        List<ArchitectureInfo> infos = byLayer.get(layer);
+        if (infos == null || infos.isEmpty()) return fallback;
+        return simpleName(infos.get(0).className());
     }
 
     private void writeBpmnSequences(Path outputDir, List<BpmnFlow> flows) throws IOException {

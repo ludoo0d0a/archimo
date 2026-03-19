@@ -43,6 +43,18 @@ class PlantUmlOutputTest {
         assertThat(content).contains("OwnerController");
         assertThat(content).contains("OwnerService");
         assertThat(content).contains("OwnerRepository");
+
+        Path flow = outputDir.resolve("architecture-flow.puml");
+        assertThat(flow).exists();
+        String flowContent = Files.readString(flow);
+        assertThat(flowContent).contains("Controller --> Service");
+        assertThat(flowContent).contains("Service --> Repository");
+
+        Path sequence = outputDir.resolve("architecture-sequence.puml");
+        assertThat(sequence).exists();
+        String sequenceContent = Files.readString(sequence);
+        assertThat(sequenceContent).contains("Client -> OwnerController : HTTP request");
+        assertThat(sequenceContent).contains("OwnerService -> OwnerRepository : query/persist");
     }
 }
 

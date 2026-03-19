@@ -37,6 +37,8 @@ public final class PlantUmlOutput implements DiagramOutput {
 
         writeArchitectureDiagram(outputDir, result.architectureInfos());
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
+        writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
+        writeArchitectureSequenceDiagram(outputDir, result.architectureInfos());
         writeMessagingDiagram(outputDir, result.messagingFlows());
         writeBpmnDiagram(outputDir, result.bpmnFlows());
     }
@@ -104,6 +106,87 @@ public final class PlantUmlOutput implements DiagramOutput {
 
         p.append("@enduml");
         Files.writeString(outputDir.resolve("architecture-class-diagram.puml"), p.toString());
+    }
+
+    private void writeArchitectureFlowDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
+        if (infos.isEmpty()) return;
+        Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(infos);
+
+        StringBuilder p = new StringBuilder();
+        p.append("@startuml\n");
+        p.append("title Architecture Flow (Layered)\n");
+        p.append("left to right direction\n");
+        appendLayerNode(p, byLayer, "controller", "Controller");
+        appendLayerNode(p, byLayer, "service", "Service");
+        appendLayerNode(p, byLayer, "repository", "Repository");
+        appendLayerNode(p, byLayer, "domain", "Domain");
+        appendLayerNode(p, byLayer, "application", "Application");
+        appendLayerNode(p, byLayer, "infrastructure", "Infrastructure");
+        appendLayerFlowEdges(p, byLayer);
+        p.append("@enduml");
+        Files.writeString(outputDir.resolve("architecture-flow.puml"), p.toString());
+    }
+
+    private void writeArchitectureSequenceDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
+        if (infos.isEmpty()) return;
+        Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(infos);
+        String controller = firstSimpleName(byLayer, "controller", "Controller");
+        String service = firstSimpleName(byLayer, "service", "Service");
+        String repository = firstSimpleName(byLayer, "repository", "Repository");
+
+        StringBuilder p = new StringBuilder();
+        p.append("@startuml\n");
+        p.append("title Request Sequence (Controller -> Service -> Repository)\n");
+        p.append("actor Client\n");
+        p.append("participant ").append(controller).append("\n");
+        p.append("participant ").append(service).append("\n");
+        p.append("participant ").append(repository).append("\n");
+        p.append("Client -> ").append(controller).append(" : HTTP request\n");
+        p.append(controller).append(" -> ").append(service).append(" : invoke use case\n");
+        p.append(service).append(" -> ").append(repository).append(" : query/persist\n");
+        p.append(repository).append(" --> ").append(service).append(" : data\n");
+        p.append(service).append(" --> ").append(controller).append(" : response model\n");
+        p.append(controller).append(" --> Client : HTTP response\n");
+        p.append("@enduml");
+        Files.writeString(outputDir.resolve("architecture-sequence.puml"), p.toString());
+    }
+
+    private static Map<String, List<ArchitectureInfo>> groupByLayer(List<ArchitectureInfo> infos) {
+        Map<String, List<ArchitectureInfo>> byLayer = new LinkedHashMap<>();
+        for (ArchitectureInfo info : infos) {
+            byLayer.computeIfAbsent(info.layer(), k -> new ArrayList<>()).add(info);
+        }
+        return byLayer;
+    }
+
+    private static void appendLayerNode(StringBuilder p, Map<String, List<ArchitectureInfo>> byLayer, String key, String label) {
+        List<ArchitectureInfo> infos = byLayer.get(key);
+        if (infos == null || infos.isEmpty()) return;
+        p.append("rectangle \"").append(label).append("\\n(").append(infos.size()).append(" classes)\" as ").append(label).append("\n");
+    }
+
+    private static void appendLayerFlowEdges(StringBuilder p, Map<String, List<ArchitectureInfo>> byLayer) {
+        if (byLayer.containsKey("controller") && byLayer.containsKey("service")) {
+            p.append("Controller --> Service : uses\n");
+        }
+        if (byLayer.containsKey("service") && byLayer.containsKey("repository")) {
+            p.append("Service --> Repository : uses\n");
+        }
+        if (byLayer.containsKey("service") && byLayer.containsKey("domain")) {
+            p.append("Service --> Domain : manipulates\n");
+        }
+        if (byLayer.containsKey("controller") && byLayer.containsKey("application")) {
+            p.append("Controller --> Application : orchestrates\n");
+        }
+        if (byLayer.containsKey("application") && byLayer.containsKey("infrastructure")) {
+            p.append("Application --> Infrastructure : delegates\n");
+        }
+    }
+
+    private static String firstSimpleName(Map<String, List<ArchitectureInfo>> byLayer, String layer, String fallback) {
+        List<ArchitectureInfo> infos = byLayer.get(layer);
+        if (infos == null || infos.isEmpty()) return fallback;
+        return simpleName(infos.get(0).className());
     }
 
     private static String simpleName(String fqcn) {

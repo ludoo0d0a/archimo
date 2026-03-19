@@ -70,7 +70,7 @@ public final class ModulithExtractorMain {
                 System.exit(1);
             }
 
-            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false);
+            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode);
             runProjectMode(newConfig);
 
         } catch (Exception e) {
@@ -122,6 +122,9 @@ public final class ModulithExtractorMain {
             javaArgs.add("--app-class=" + appClass);
             javaArgs.add("--output-dir=" + outDir);
             javaArgs.add("--project-dir=" + config.projectDir.getAbsolutePath());
+            if (config.fullDependencyMode) {
+                javaArgs.add("--full-dependency-mode");
+            }
 
             Path argsFile = Files.createTempFile(target, "archimo-java-args-", ".txt");
             Files.write(argsFile, javaArgs);
@@ -215,7 +218,7 @@ public final class ModulithExtractorMain {
 
             Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("archimo-docs");
             Path projectDir = config.projectDir != null ? config.projectDir.toPath() : null;
-            ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir);
+            ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir, config.fullDependencyMode);
             ExtractResult result = extractor.extract();
 
             System.out.println("Extraction complete. Output: " + outputDir.toAbsolutePath());
@@ -342,9 +345,9 @@ public final class ModulithExtractorMain {
         System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.ModulithExtractorMain --app-class=<fqcn> [--output-dir=<path>]");
         System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.ModulithExtractorMain --base-package=<package> [--output-dir=<path>]");
         System.err.println("  Project mode (builds with Maven then extracts):");
-        System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--output-dir=<path>]");
+        System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--output-dir=<path>] [--full-dependency-mode]");
         System.err.println("  GitHub mode (clones repo, builds with Maven then extracts):");
-        System.err.println("    java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--output-dir=<path>]");
+        System.err.println("    java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--output-dir=<path>] [--full-dependency-mode]");
         System.err.println("  Workflow generation:");
         System.err.println("    java -jar archimo-all.jar --generate-workflow");
     }
@@ -356,14 +359,16 @@ public final class ModulithExtractorMain {
         final java.io.File outputDir;
         final String githubUrl;
         final boolean generateWorkflow;
+        final boolean fullDependencyMode;
 
-        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow) {
+        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode) {
             this.projectDir = projectDir;
             this.appClass = appClass;
             this.basePackage = basePackage;
             this.outputDir = outputDir;
             this.githubUrl = githubUrl;
             this.generateWorkflow = generateWorkflow;
+            this.fullDependencyMode = fullDependencyMode;
         }
 
         static Config parse(String[] args) {
@@ -373,6 +378,7 @@ public final class ModulithExtractorMain {
             java.io.File outputDir = null;
             String githubUrl = null;
             boolean generateWorkflow = false;
+            boolean fullDependencyMode = false;
             for (String a : args) {
                 if (a.startsWith("--project-dir=")) projectDir = new java.io.File(a.substring("--project-dir=".length()));
                 else if (a.startsWith("--app-class=")) appClass = a.substring("--app-class=".length()).trim();
@@ -380,10 +386,11 @@ public final class ModulithExtractorMain {
                 else if (a.startsWith("--output-dir=")) outputDir = new java.io.File(a.substring("--output-dir=".length()));
                 else if (a.startsWith("--github-url=")) githubUrl = a.substring("--github-url=".length()).trim();
                 else if (a.equals("--generate-workflow")) generateWorkflow = true;
+                else if (a.equals("--full-dependency-mode")) fullDependencyMode = true;
             }
             if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow) return null;
             if (projectDir != null && !projectDir.isDirectory()) return null;
-            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow);
+            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode);
         }
     }
 }

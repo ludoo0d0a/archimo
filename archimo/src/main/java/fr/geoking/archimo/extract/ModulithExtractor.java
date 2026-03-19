@@ -42,16 +42,22 @@ public final class ModulithExtractor {
     private final ApplicationModules modules;
     private final Path outputDir;
     private final Path projectDir;
+    private final boolean fullDependencyMode;
     private final ObjectMapper objectMapper;
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir) {
-        this(modules, outputDir, null);
+        this(modules, outputDir, null, false);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir) {
+        this(modules, outputDir, projectDir, false);
+    }
+
+    public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode) {
         this.modules = modules;
         this.outputDir = Objects.requireNonNull(outputDir);
         this.projectDir = projectDir;
+        this.fullDependencyMode = fullDependencyMode;
         this.objectMapper = new ObjectMapper()
                 .enable(SerializationFeature.INDENT_OUTPUT);
     }
@@ -85,7 +91,10 @@ public final class ModulithExtractor {
         }
         List<BpmnFlow> bpmnFlows = new BpmnScanner().scan(projectDir);
 
-        ExtractResult result = new ExtractResult(eventsMap, flows, sequences, moduleDependencies, classDependencies, commandFlows, messagingFlows, bpmnFlows, architectureInfos);
+        ExtractResult result = new ExtractResult(
+                eventsMap, flows, sequences, moduleDependencies, classDependencies,
+                commandFlows, messagingFlows, bpmnFlows, architectureInfos, fullDependencyMode
+        );
 
         // 3. Delegate diagram outputs to pluggable writers (PlantUML, Mermaid, …)
         for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {

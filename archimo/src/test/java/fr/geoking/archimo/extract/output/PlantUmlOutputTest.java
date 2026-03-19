@@ -35,7 +35,8 @@ class PlantUmlOutputTest {
                         new ArchitectureInfo("com.example.petclinic.OwnerController", "controller", "mvc"),
                         new ArchitectureInfo("com.example.petclinic.OwnerService", "service", "mvc"),
                         new ArchitectureInfo("com.example.petclinic.OwnerRepository", "repository", "mvc")
-                )
+                ),
+                false
         );
 
         new PlantUmlOutput().write(null, outputDir, result);
@@ -65,6 +66,31 @@ class PlantUmlOutputTest {
         String sequenceContent = Files.readString(sequence);
         assertThat(sequenceContent).contains("Client -> OwnerController : HTTP request");
         assertThat(sequenceContent).contains("OwnerService -> OwnerRepository : query/persist");
+    }
+
+    @Test
+    void fullDependencyMode_includesNonLayerEdgesInComponentDiagram() throws Exception {
+        ExtractResult result = new ExtractResult(
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(
+                        new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerEntity")
+                ),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(
+                        new ArchitectureInfo("com.example.petclinic.OwnerController", "controller", "mvc"),
+                        new ArchitectureInfo("com.example.petclinic.OwnerEntity", "domain", "mvc")
+                ),
+                true
+        );
+
+        new PlantUmlOutput().write(null, outputDir, result);
+        String componentContent = Files.readString(outputDir.resolve("architecture-component-dependencies.puml"));
+        assertThat(componentContent).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerEntity");
     }
 }
 

@@ -31,7 +31,7 @@ public final class MermaidOutput implements DiagramOutput {
         writeMermaidSequences(outputDir, flows);
         writeMermaidModuleDependencies(outputDir, deps);
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
-        writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies());
+        writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies(), result.fullDependencyMode());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
         writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
         writeMessagingFlows(outputDir, result.messagingFlows());
@@ -270,7 +270,8 @@ public final class MermaidOutput implements DiagramOutput {
 
     private void writeComponentDependenciesDiagram(Path outputDir,
                                                    List<ArchitectureInfo> infos,
-                                                   List<ClassDependency> classDependencies) throws IOException {
+                                                   List<ClassDependency> classDependencies,
+                                                   boolean fullDependencyMode) throws IOException {
         if (infos == null || infos.isEmpty() || classDependencies == null || classDependencies.isEmpty()) return;
         Path mermaidDir = outputDir.resolve("mermaid");
         Files.createDirectories(mermaidDir);
@@ -288,7 +289,7 @@ public final class MermaidOutput implements DiagramOutput {
             m.append("  ").append(id).append("[\"").append(simpleName(info.className())).append("\"]\n");
         }
         for (ClassDependency dep : classDependencies) {
-            if (isInterestingDependency(layerByClass, dep)) {
+            if (fullDependencyMode || isInterestingDependency(layerByClass, dep)) {
                 m.append("  ").append(sanitizeId(dep.fromClass())).append(" --> ").append(sanitizeId(dep.toClass())).append("\n");
             }
         }

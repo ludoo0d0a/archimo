@@ -38,7 +38,7 @@ public final class PlantUmlOutput implements DiagramOutput {
 
         writeArchitectureDiagram(outputDir, result.architectureInfos());
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
-        writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies());
+        writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies(), result.fullDependencyMode());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
         writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
         writeMessagingDiagram(outputDir, result.messagingFlows());
@@ -172,7 +172,8 @@ public final class PlantUmlOutput implements DiagramOutput {
 
     private void writeComponentDependenciesDiagram(Path outputDir,
                                                    List<ArchitectureInfo> infos,
-                                                   List<ClassDependency> classDependencies) throws IOException {
+                                                   List<ClassDependency> classDependencies,
+                                                   boolean fullDependencyMode) throws IOException {
         if (infos.isEmpty() || classDependencies == null || classDependencies.isEmpty()) return;
 
         Map<String, String> layerByClass = new LinkedHashMap<>();
@@ -190,7 +191,7 @@ public final class PlantUmlOutput implements DiagramOutput {
             p.append("class ").append(id).append(" as \"").append(simpleName(info.className())).append("\"\n");
         }
         for (ClassDependency dep : classDependencies) {
-            if (isInterestingDependency(layerByClass, dep)) {
+            if (fullDependencyMode || isInterestingDependency(layerByClass, dep)) {
                 p.append(toId(dep.fromClass())).append(" --> ").append(toId(dep.toClass())).append("\n");
             }
         }

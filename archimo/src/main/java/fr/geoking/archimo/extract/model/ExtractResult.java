@@ -18,5 +18,6 @@ public record ExtractResult(
     List<CommandFlow> commandFlows,
     List<MessagingFlow> messagingFlows,
     List<BpmnFlow> bpmnFlows,
-    List<ArchitectureInfo> architectureInfos
+    List<ArchitectureInfo> architectureInfos,
+    boolean fullDependencyMode
 ) {}

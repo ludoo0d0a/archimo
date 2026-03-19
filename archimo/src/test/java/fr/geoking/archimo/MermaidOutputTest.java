@@ -38,7 +38,8 @@ class MermaidOutputTest {
                 List.of(),   // commandFlows
                 List.of(),   // messagingFlows
                 List.of(),   // bpmnFlows
-                List.of()    // architectureInfos
+                List.of(),   // architectureInfos
+                false        // fullDependencyMode
         );
 
         new MermaidOutput().write(null, outputDir, result);
@@ -68,7 +69,8 @@ class MermaidOutputTest {
                         new ArchitectureInfo("com.example.petclinic.OwnerController", "controller", "mvc"),
                         new ArchitectureInfo("com.example.petclinic.OwnerService", "service", "mvc"),
                         new ArchitectureInfo("com.example.petclinic.OwnerRepository", "repository", "mvc")
-                )
+                ),
+                false
         );
 
         new MermaidOutput().write(null, outputDir, result);
@@ -92,6 +94,31 @@ class MermaidOutputTest {
         String sequenceMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-sequence.mmd"));
         assertThat(sequenceMmd).contains("Client->>OwnerController: HTTP request");
         assertThat(sequenceMmd).contains("OwnerService->>OwnerRepository: query/persist");
+    }
+
+    @Test
+    void mermaidOutput_fullDependencyMode_includesNonLayerEdges() throws Exception {
+        ExtractResult result = new ExtractResult(
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(
+                        new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerEntity")
+                ),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(
+                        new ArchitectureInfo("com.example.petclinic.OwnerController", "controller", "mvc"),
+                        new ArchitectureInfo("com.example.petclinic.OwnerEntity", "domain", "mvc")
+                ),
+                true
+        );
+
+        new MermaidOutput().write(null, outputDir, result);
+        String componentMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-component-dependencies.mmd"));
+        assertThat(componentMmd).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerEntity");
     }
 }
 

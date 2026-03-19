@@ -1,6 +1,7 @@
 package fr.geoking.archimo.extract;
 
 import fr.geoking.archimo.extract.model.CommandFlow;
+import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.ModuleDependency;
@@ -14,9 +15,6 @@ import org.springframework.modulith.core.ApplicationModule;
 import org.springframework.modulith.core.ApplicationModuleDependency;
 import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.modulith.core.DependencyType;
-import fr.geoking.archimo.extract.ArchitectureScanner;
-import fr.geoking.archimo.extract.BpmnScanner;
-import fr.geoking.archimo.extract.MessagingScanner;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.MessagingFlow;
@@ -73,18 +71,21 @@ public final class ModulithExtractor {
 
         // 2. Advanced scanners
         List<ArchitectureInfo> architectureInfos = new ArrayList<>();
+        List<ClassDependency> classDependencies = new ArrayList<>();
         List<MessagingFlow> messagingFlows = new ArrayList<>();
         if (projectDir != null) {
             Path classesPath = findClassesPath(projectDir);
             if (classesPath != null && Files.isDirectory(classesPath)) {
                 JavaClasses classes = new ClassFileImporter().importPath(classesPath);
-                architectureInfos = new ArchitectureScanner().scan(classes);
+                ArchitectureScanner architectureScanner = new ArchitectureScanner();
+                architectureInfos = architectureScanner.scan(classes);
+                classDependencies = architectureScanner.scanClassDependencies(classes, architectureInfos);
                 messagingFlows = new MessagingScanner().scan(classes);
             }
         }
         List<BpmnFlow> bpmnFlows = new BpmnScanner().scan(projectDir);
 
-        ExtractResult result = new ExtractResult(eventsMap, flows, sequences, moduleDependencies, commandFlows, messagingFlows, bpmnFlows, architectureInfos);
+        ExtractResult result = new ExtractResult(eventsMap, flows, sequences, moduleDependencies, classDependencies, commandFlows, messagingFlows, bpmnFlows, architectureInfos);
 
         // 3. Delegate diagram outputs to pluggable writers (PlantUML, Mermaid, …)
         for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
@@ -102,6 +103,7 @@ public final class ModulithExtractor {
         objectMapper.writeValue(jsonDir.resolve("command-flows.json").toFile(), commandFlows);
         objectMapper.writeValue(jsonDir.resolve("sequences.json").toFile(), sequences);
         objectMapper.writeValue(jsonDir.resolve("module-dependencies.json").toFile(), moduleDependencies);
+        objectMapper.writeValue(jsonDir.resolve("class-dependencies.json").toFile(), classDependencies);
         objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
 
         return result;

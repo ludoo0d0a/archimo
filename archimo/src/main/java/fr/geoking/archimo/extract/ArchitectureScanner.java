@@ -2,10 +2,14 @@ package fr.geoking.archimo.extract;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.Dependency;
+import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 public class ArchitectureScanner {
 
@@ -22,6 +26,34 @@ public class ArchitectureScanner {
             }
         }
         return infos;
+    }
+
+    public List<ClassDependency> scanClassDependencies(JavaClasses classes, List<ArchitectureInfo> infos) {
+        Set<String> known = new LinkedHashSet<>();
+        for (ArchitectureInfo info : infos) {
+            known.add(info.className());
+        }
+
+        Set<String> uniqueEdges = new LinkedHashSet<>();
+        List<ClassDependency> dependencies = new ArrayList<>();
+
+        for (JavaClass clazz : classes) {
+            String origin = clazz.getFullName();
+            if (!known.contains(origin)) {
+                continue;
+            }
+            for (Dependency dep : clazz.getDirectDependenciesFromSelf()) {
+                String target = dep.getTargetClass().getFullName();
+                if (origin.equals(target) || !known.contains(target)) {
+                    continue;
+                }
+                String key = origin + "->" + target;
+                if (uniqueEdges.add(key)) {
+                    dependencies.add(new ClassDependency(origin, target));
+                }
+            }
+        }
+        return dependencies;
     }
 
     private String identifyLayer(JavaClass clazz) {

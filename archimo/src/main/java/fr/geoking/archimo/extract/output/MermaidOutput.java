@@ -2,6 +2,7 @@ package fr.geoking.archimo.extract.output;
 
 import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
+import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.MessagingFlow;
@@ -30,8 +31,9 @@ public final class MermaidOutput implements DiagramOutput {
         writeMermaidSequences(outputDir, flows);
         writeMermaidModuleDependencies(outputDir, deps);
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
+        writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
-        writeArchitectureSequenceDiagram(outputDir, result.architectureInfos());
+        writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
         writeMessagingFlows(outputDir, result.messagingFlows());
         writeBpmnSequences(outputDir, result.bpmnFlows());
     }
@@ -223,15 +225,32 @@ public final class MermaidOutput implements DiagramOutput {
         Files.writeString(mermaidDir.resolve("architecture-flow.mmd"), m.toString());
     }
 
-    private void writeArchitectureSequenceDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
+    private void writeArchitectureSequenceDiagram(Path outputDir, List<ArchitectureInfo> infos, List<ClassDependency> classDependencies) throws IOException {
         if (infos == null || infos.isEmpty()) return;
         Path mermaidDir = outputDir.resolve("mermaid");
         Files.createDirectories(mermaidDir);
 
         Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(infos);
-        String controller = firstSimpleName(byLayer, "controller", "Controller");
-        String service = firstSimpleName(byLayer, "service", "Service");
-        String repository = firstSimpleName(byLayer, "repository", "Repository");
+        String controllerClass = firstClassName(byLayer, "controller", null);
+        String serviceClass = firstClassName(byLayer, "service", null);
+        String repositoryClass = firstClassName(byLayer, "repository", null);
+
+        if (controllerClass != null && classDependencies != null && !classDependencies.isEmpty()) {
+            String discoveredService = firstDependencyTarget(controllerClass, byLayer.getOrDefault("service", List.of()), classDependencies);
+            if (discoveredService != null) {
+                serviceClass = discoveredService;
+            }
+        }
+        if (serviceClass != null && classDependencies != null && !classDependencies.isEmpty()) {
+            String discoveredRepository = firstDependencyTarget(serviceClass, byLayer.getOrDefault("repository", List.of()), classDependencies);
+            if (discoveredRepository != null) {
+                repositoryClass = discoveredRepository;
+            }
+        }
+
+        String controller = controllerClass != null ? simpleName(controllerClass) : "Controller";
+        String service = serviceClass != null ? simpleName(serviceClass) : "Service";
+        String repository = repositoryClass != null ? simpleName(repositoryClass) : "Repository";
 
         StringBuilder m = new StringBuilder();
         m.append("%% Request sequence fallback (non-Modulith)\n");
@@ -247,6 +266,33 @@ public final class MermaidOutput implements DiagramOutput {
         m.append("  ").append(service).append("-->>").append(controller).append(": response model\n");
         m.append("  ").append(controller).append("-->>Client: HTTP response\n");
         Files.writeString(mermaidDir.resolve("architecture-sequence.mmd"), m.toString());
+    }
+
+    private void writeComponentDependenciesDiagram(Path outputDir,
+                                                   List<ArchitectureInfo> infos,
+                                                   List<ClassDependency> classDependencies) throws IOException {
+        if (infos == null || infos.isEmpty() || classDependencies == null || classDependencies.isEmpty()) return;
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+
+        Map<String, String> layerByClass = new HashMap<>();
+        for (ArchitectureInfo info : infos) {
+            layerByClass.put(info.className(), info.layer());
+        }
+
+        StringBuilder m = new StringBuilder();
+        m.append("%% Component dependencies (from bytecode)\n");
+        m.append("flowchart LR\n");
+        for (ArchitectureInfo info : infos) {
+            String id = sanitizeId(info.className());
+            m.append("  ").append(id).append("[\"").append(simpleName(info.className())).append("\"]\n");
+        }
+        for (ClassDependency dep : classDependencies) {
+            if (isInterestingDependency(layerByClass, dep)) {
+                m.append("  ").append(sanitizeId(dep.fromClass())).append(" --> ").append(sanitizeId(dep.toClass())).append("\n");
+            }
+        }
+        Files.writeString(mermaidDir.resolve("architecture-component-dependencies.mmd"), m.toString());
     }
 
     private static Map<String, List<ArchitectureInfo>> groupByLayer(List<ArchitectureInfo> infos) {
@@ -281,10 +327,32 @@ public final class MermaidOutput implements DiagramOutput {
         }
     }
 
-    private static String firstSimpleName(Map<String, List<ArchitectureInfo>> byLayer, String layer, String fallback) {
+    private static String firstClassName(Map<String, List<ArchitectureInfo>> byLayer, String layer, String fallback) {
         List<ArchitectureInfo> infos = byLayer.get(layer);
         if (infos == null || infos.isEmpty()) return fallback;
-        return simpleName(infos.get(0).className());
+        return infos.get(0).className();
+    }
+
+    private static String firstDependencyTarget(String fromClass, List<ArchitectureInfo> candidateTargets, List<ClassDependency> dependencies) {
+        if (fromClass == null || candidateTargets == null || candidateTargets.isEmpty()) return null;
+        List<String> candidateNames = candidateTargets.stream().map(ArchitectureInfo::className).toList();
+        for (ClassDependency dep : dependencies) {
+            if (fromClass.equals(dep.fromClass()) && candidateNames.contains(dep.toClass())) {
+                return dep.toClass();
+            }
+        }
+        return null;
+    }
+
+    private static boolean isInterestingDependency(Map<String, String> layerByClass, ClassDependency dep) {
+        String fromLayer = layerByClass.get(dep.fromClass());
+        String toLayer = layerByClass.get(dep.toClass());
+        if (fromLayer == null || toLayer == null) return false;
+        if (fromLayer.equals("controller") && toLayer.equals("service")) return true;
+        if (fromLayer.equals("service") && toLayer.equals("repository")) return true;
+        if (fromLayer.equals("service") && toLayer.equals("domain")) return true;
+        if (fromLayer.equals("application") && toLayer.equals("infrastructure")) return true;
+        return fromLayer.equals("controller") && toLayer.equals("application");
     }
 
     private void writeBpmnSequences(Path outputDir, List<BpmnFlow> flows) throws IOException {

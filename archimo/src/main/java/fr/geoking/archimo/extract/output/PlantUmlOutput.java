@@ -8,6 +8,7 @@ import org.springframework.modulith.docs.Documenter.Options;
 
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.BpmnFlow;
+import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 
 import java.io.IOException;
@@ -37,8 +38,9 @@ public final class PlantUmlOutput implements DiagramOutput {
 
         writeArchitectureDiagram(outputDir, result.architectureInfos());
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
+        writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
-        writeArchitectureSequenceDiagram(outputDir, result.architectureInfos());
+        writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
         writeMessagingDiagram(outputDir, result.messagingFlows());
         writeBpmnDiagram(outputDir, result.bpmnFlows());
     }
@@ -127,12 +129,29 @@ public final class PlantUmlOutput implements DiagramOutput {
         Files.writeString(outputDir.resolve("architecture-flow.puml"), p.toString());
     }
 
-    private void writeArchitectureSequenceDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
+    private void writeArchitectureSequenceDiagram(Path outputDir, List<ArchitectureInfo> infos, List<ClassDependency> classDependencies) throws IOException {
         if (infos.isEmpty()) return;
         Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(infos);
-        String controller = firstSimpleName(byLayer, "controller", "Controller");
-        String service = firstSimpleName(byLayer, "service", "Service");
-        String repository = firstSimpleName(byLayer, "repository", "Repository");
+        String controllerClass = firstClassName(byLayer, "controller", null);
+        String serviceClass = firstClassName(byLayer, "service", null);
+        String repositoryClass = firstClassName(byLayer, "repository", null);
+
+        if (controllerClass != null && classDependencies != null && !classDependencies.isEmpty()) {
+            String discoveredService = firstDependencyTarget(controllerClass, byLayer.getOrDefault("service", List.of()), classDependencies);
+            if (discoveredService != null) {
+                serviceClass = discoveredService;
+            }
+        }
+        if (serviceClass != null && classDependencies != null && !classDependencies.isEmpty()) {
+            String discoveredRepository = firstDependencyTarget(serviceClass, byLayer.getOrDefault("repository", List.of()), classDependencies);
+            if (discoveredRepository != null) {
+                repositoryClass = discoveredRepository;
+            }
+        }
+
+        String controller = controllerClass != null ? simpleName(controllerClass) : "Controller";
+        String service = serviceClass != null ? simpleName(serviceClass) : "Service";
+        String repository = repositoryClass != null ? simpleName(repositoryClass) : "Repository";
 
         StringBuilder p = new StringBuilder();
         p.append("@startuml\n");
@@ -149,6 +168,34 @@ public final class PlantUmlOutput implements DiagramOutput {
         p.append(controller).append(" --> Client : HTTP response\n");
         p.append("@enduml");
         Files.writeString(outputDir.resolve("architecture-sequence.puml"), p.toString());
+    }
+
+    private void writeComponentDependenciesDiagram(Path outputDir,
+                                                   List<ArchitectureInfo> infos,
+                                                   List<ClassDependency> classDependencies) throws IOException {
+        if (infos.isEmpty() || classDependencies == null || classDependencies.isEmpty()) return;
+
+        Map<String, String> layerByClass = new LinkedHashMap<>();
+        for (ArchitectureInfo info : infos) {
+            layerByClass.put(info.className(), info.layer());
+        }
+
+        StringBuilder p = new StringBuilder();
+        p.append("@startuml\n");
+        p.append("title Component Dependencies (from bytecode)\n");
+        p.append("skinparam packageStyle rectangle\n");
+        p.append("hide empty members\n");
+        for (ArchitectureInfo info : infos) {
+            String id = toId(info.className());
+            p.append("class ").append(id).append(" as \"").append(simpleName(info.className())).append("\"\n");
+        }
+        for (ClassDependency dep : classDependencies) {
+            if (isInterestingDependency(layerByClass, dep)) {
+                p.append(toId(dep.fromClass())).append(" --> ").append(toId(dep.toClass())).append("\n");
+            }
+        }
+        p.append("@enduml");
+        Files.writeString(outputDir.resolve("architecture-component-dependencies.puml"), p.toString());
     }
 
     private static Map<String, List<ArchitectureInfo>> groupByLayer(List<ArchitectureInfo> infos) {
@@ -183,10 +230,32 @@ public final class PlantUmlOutput implements DiagramOutput {
         }
     }
 
-    private static String firstSimpleName(Map<String, List<ArchitectureInfo>> byLayer, String layer, String fallback) {
+    private static String firstClassName(Map<String, List<ArchitectureInfo>> byLayer, String layer, String fallback) {
         List<ArchitectureInfo> infos = byLayer.get(layer);
         if (infos == null || infos.isEmpty()) return fallback;
-        return simpleName(infos.get(0).className());
+        return infos.get(0).className();
+    }
+
+    private static String firstDependencyTarget(String fromClass, List<ArchitectureInfo> candidateTargets, List<ClassDependency> dependencies) {
+        if (fromClass == null || candidateTargets == null || candidateTargets.isEmpty()) return null;
+        List<String> candidateNames = candidateTargets.stream().map(ArchitectureInfo::className).toList();
+        for (ClassDependency dep : dependencies) {
+            if (fromClass.equals(dep.fromClass()) && candidateNames.contains(dep.toClass())) {
+                return dep.toClass();
+            }
+        }
+        return null;
+    }
+
+    private static boolean isInterestingDependency(Map<String, String> layerByClass, ClassDependency dep) {
+        String fromLayer = layerByClass.get(dep.fromClass());
+        String toLayer = layerByClass.get(dep.toClass());
+        if (fromLayer == null || toLayer == null) return false;
+        if (fromLayer.equals("controller") && toLayer.equals("service")) return true;
+        if (fromLayer.equals("service") && toLayer.equals("repository")) return true;
+        if (fromLayer.equals("service") && toLayer.equals("domain")) return true;
+        if (fromLayer.equals("application") && toLayer.equals("infrastructure")) return true;
+        return fromLayer.equals("controller") && toLayer.equals("application");
     }
 
     private static String simpleName(String fqcn) {

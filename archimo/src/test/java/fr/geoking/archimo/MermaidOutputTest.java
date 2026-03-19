@@ -5,6 +5,7 @@ import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.ModuleDependency;
 import fr.geoking.archimo.extract.model.SequenceFlow;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
+import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.output.MermaidOutput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -33,6 +34,7 @@ class MermaidOutputTest {
                 frFlows,     // flows
                 frSequences, // sequences
                 frDeps,      // moduleDependencies
+                List.of(),   // classDependencies
                 List.of(),   // commandFlows
                 List.of(),   // messagingFlows
                 List.of(),   // bpmnFlows
@@ -55,6 +57,10 @@ class MermaidOutputTest {
                 List.of(),
                 List.of(),
                 List.of(),
+                List.of(
+                        new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerService"),
+                        new ClassDependency("com.example.petclinic.OwnerService", "com.example.petclinic.OwnerRepository")
+                ),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -74,6 +80,10 @@ class MermaidOutputTest {
         assertThat(architectureMmd).contains("OwnerController\"]");
         assertThat(architectureMmd).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerService");
         assertThat(architectureMmd).contains("com_example_petclinic_OwnerService --> com_example_petclinic_OwnerRepository");
+
+        String componentMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-component-dependencies.mmd"));
+        assertThat(componentMmd).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerService");
+        assertThat(componentMmd).contains("com_example_petclinic_OwnerService --> com_example_petclinic_OwnerRepository");
 
         String flowMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-flow.mmd"));
         assertThat(flowMmd).contains("Controller --> Service");

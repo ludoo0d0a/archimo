@@ -1,6 +1,7 @@
 package fr.geoking.archimo.extract.output;
 
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
+import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,6 +24,10 @@ class PlantUmlOutputTest {
                 List.of(),
                 List.of(),
                 List.of(),
+                List.of(
+                        new ClassDependency("com.example.petclinic.OwnerController", "com.example.petclinic.OwnerService"),
+                        new ClassDependency("com.example.petclinic.OwnerService", "com.example.petclinic.OwnerRepository")
+                ),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -43,6 +48,11 @@ class PlantUmlOutputTest {
         assertThat(content).contains("OwnerController");
         assertThat(content).contains("OwnerService");
         assertThat(content).contains("OwnerRepository");
+        Path component = outputDir.resolve("architecture-component-dependencies.puml");
+        assertThat(component).exists();
+        String componentContent = Files.readString(component);
+        assertThat(componentContent).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerService");
+        assertThat(componentContent).contains("com_example_petclinic_OwnerService --> com_example_petclinic_OwnerRepository");
 
         Path flow = outputDir.resolve("architecture-flow.puml");
         assertThat(flow).exists();

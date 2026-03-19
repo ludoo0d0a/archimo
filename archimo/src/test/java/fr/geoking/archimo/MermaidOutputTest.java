@@ -65,7 +65,8 @@ class MermaidOutputTest {
                         new ClassDependency("com.example.petclinic.OwnerService", "com.example.petclinic.OwnerRepository")
                 ),
                 List.of(
-                        new EndpointFlow("GET", "/owners", "com.example.petclinic.OwnerController", "listOwners")
+                        new EndpointFlow("GET", "/owners", "com.example.petclinic.OwnerController", "listOwners"),
+                        new EndpointFlow("POST", "/owners", "com.example.petclinic.OwnerController", "createOwner")
                 ),
                 List.of(),
                 List.of(),
@@ -104,9 +105,10 @@ class MermaidOutputTest {
         assertThat(endpointFlowMmd).contains("GET /owners");
         assertThat(endpointFlowMmd).contains("OwnerController");
 
-        String endpointSequenceMmd = Files.readString(outputDir.resolve("mermaid").resolve("endpoint-sequence.mmd"));
-        assertThat(endpointSequenceMmd).contains("Client->>OwnerController: GET /owners");
-        assertThat(endpointSequenceMmd).contains("OwnerController->>OwnerService: listOwners()");
+        String endpointSequenceGetMmd = Files.readString(outputDir.resolve("mermaid").resolve("endpoint-sequence-GET__owners_listOwners.mmd"));
+        assertThat(endpointSequenceGetMmd).contains("Client->>OwnerController: GET /owners");
+        assertThat(endpointSequenceGetMmd).contains("OwnerController->>OwnerService: listOwners()");
+        assertThat(outputDir.resolve("mermaid").resolve("endpoint-sequence-POST__owners_createOwner.mmd")).exists();
     }
 
     @Test

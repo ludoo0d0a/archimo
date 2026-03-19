@@ -105,7 +105,7 @@ public final class ModulithExtractor {
         }
 
         // 4. Generate static website (architecture-as-code navigation & search)
-        writeSite(eventsMap, flows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows);
+        writeSite(eventsMap, flows, endpointFlows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows);
 
         // 5. Write JSON artifacts last (use absolute path so output location is unambiguous)
         Path jsonDir = outputDir.toAbsolutePath().resolve("json");
@@ -117,6 +117,7 @@ public final class ModulithExtractor {
         objectMapper.writeValue(jsonDir.resolve("module-dependencies.json").toFile(), moduleDependencies);
         objectMapper.writeValue(jsonDir.resolve("class-dependencies.json").toFile(), classDependencies);
         objectMapper.writeValue(jsonDir.resolve("endpoint-flows.json").toFile(), endpointFlows);
+        objectMapper.writeValue(jsonDir.resolve("endpoint-sequences.json").toFile(), buildEndpointSequencesIndex(endpointFlows));
         objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
 
         return result;
@@ -204,6 +205,7 @@ public final class ModulithExtractor {
      */
     private void writeSite(List<ModuleEvents> eventsMap,
                            List<EventFlow> flows,
+                           List<EndpointFlow> endpointFlows,
                            List<CommandFlow> commandFlows,
                            List<ModuleDependency> moduleDependencies,
                            List<ArchitectureInfo> architectureInfos,
@@ -225,6 +227,7 @@ public final class ModulithExtractor {
         List<Map<String, Object>> modulesIndex = new ArrayList<>();
         List<Map<String, Object>> classesIndex = new ArrayList<>();
         List<Map<String, Object>> eventsIndex = new ArrayList<>();
+        List<Map<String, Object>> endpointsIndex = new ArrayList<>();
         List<Map<String, Object>> commandsIndex = new ArrayList<>();
         List<Map<String, Object>> architectureIndex = new ArrayList<>();
         List<Map<String, Object>> messagingIndex = new ArrayList<>();
@@ -272,6 +275,16 @@ public final class ModulithExtractor {
             commandsIndex.add(cmd);
         }
 
+        // Endpoints
+        for (EndpointFlow endpointFlow : endpointFlows) {
+            Map<String, Object> endpoint = new LinkedHashMap<>();
+            endpoint.put("httpMethod", endpointFlow.httpMethod());
+            endpoint.put("path", endpointFlow.path());
+            endpoint.put("controllerClass", endpointFlow.controllerClass());
+            endpoint.put("controllerMethod", endpointFlow.controllerMethod());
+            endpointsIndex.add(endpoint);
+        }
+
         // Architecture
         for (ArchitectureInfo info : architectureInfos) {
             Map<String, Object> arch = new LinkedHashMap<>();
@@ -302,11 +315,14 @@ public final class ModulithExtractor {
         }
 
         // Site index JSON consumed by the SPA
+        List<Map<String, Object>> endpointSequencesIndex = buildEndpointSequencesIndex(endpointFlows);
         Map<String, Object> siteIndex = new LinkedHashMap<>();
         siteIndex.put("diagrams", diagrams);
         siteIndex.put("modules", modulesIndex);
         siteIndex.put("classes", classesIndex);
         siteIndex.put("events", eventsIndex);
+        siteIndex.put("endpoints", endpointsIndex);
+        siteIndex.put("endpointSequences", endpointSequencesIndex);
         siteIndex.put("commands", commandsIndex);
         siteIndex.put("moduleDependencies", moduleDependencies);
         siteIndex.put("architecture", architectureIndex);
@@ -314,6 +330,27 @@ public final class ModulithExtractor {
         siteIndex.put("bpmn", bpmnIndex);
 
         objectMapper.writeValue(siteDir.resolve("site-index.json").toFile(), siteIndex);
+    }
+
+    private List<Map<String, Object>> buildEndpointSequencesIndex(List<EndpointFlow> endpointFlows) {
+        List<Map<String, Object>> index = new ArrayList<>();
+        for (EndpointFlow endpoint : endpointFlows) {
+            String slug = sanitizeForFilename(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod());
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("httpMethod", endpoint.httpMethod());
+            entry.put("path", endpoint.path());
+            entry.put("controllerClass", endpoint.controllerClass());
+            entry.put("controllerMethod", endpoint.controllerMethod());
+            entry.put("plantumlPath", "endpoint-sequence-" + slug + ".puml");
+            entry.put("mermaidPath", "mermaid/endpoint-sequence-" + slug + ".mmd");
+            index.add(entry);
+        }
+        return index;
+    }
+
+    private String sanitizeForFilename(String value) {
+        if (value == null) return "null";
+        return value.replaceAll("[^a-zA-Z0-9_]", "_");
     }
 
     private void copySiteAsset(String name, Path siteDir) throws IOException {
@@ -358,6 +395,16 @@ public final class ModulithExtractor {
                                 level = "component";
                                 category = "module";
                                 navLabel = id.replace("module-", "").replace(".", " / ");
+                            } else if (id.startsWith("endpoint-sequence-")) {
+                                c4Level = 0;
+                                level = "endpoint";
+                                category = "sequence";
+                                navLabel = formatEndpointSequenceLabel(id);
+                            } else if ("endpoint-flow".equals(id)) {
+                                c4Level = 0;
+                                level = "endpoint";
+                                category = "flow";
+                                navLabel = "Endpoint flow";
                             } else {
                                 c4Level = 3;
                                 level = "component";
@@ -392,8 +439,22 @@ public final class ModulithExtractor {
                                 String id = fileName.substring(0, fileName.length() - ".mmd".length());
                                 String relative = "mermaid/" + fileName;
                                 String source = Files.readString(p);
-                                String level = "mermaid";
-                                String category = id.startsWith("sequence-") ? "sequence" : id.equals("event-flows") ? "flow" : "dependencies";
+                                String level;
+                                String category;
+                                String navLabel;
+                                if (id.startsWith("endpoint-sequence-")) {
+                                    level = "endpoint";
+                                    category = "sequence";
+                                    navLabel = formatEndpointSequenceLabel(id);
+                                } else if ("endpoint-flow".equals(id)) {
+                                    level = "endpoint";
+                                    category = "flow";
+                                    navLabel = "Endpoint flow";
+                                } else {
+                                    level = "mermaid";
+                                    category = id.startsWith("sequence-") ? "sequence" : id.equals("event-flows") ? "flow" : "dependencies";
+                                    navLabel = id.replaceAll("-", " ");
+                                }
 
                                 Map<String, Object> entry = new LinkedHashMap<>();
                                 entry.put("id", id);
@@ -402,7 +463,7 @@ public final class ModulithExtractor {
                                 entry.put("level", level);
                                 entry.put("category", category);
                                 entry.put("c4Level", 0);  // Mermaid: event flows, sequences, dependencies
-                                entry.put("navLabel", id.replaceAll("-", " "));
+                                entry.put("navLabel", navLabel);
                                 entry.put("format", "mermaid");
                                 entry.put("source", source);
                                 diagrams.add(entry);
@@ -414,6 +475,22 @@ public final class ModulithExtractor {
         }
 
         return diagrams;
+    }
+
+    private String formatEndpointSequenceLabel(String id) {
+        // endpoint-sequence-GET__owners_listOwners -> GET /owners
+        String prefix = "endpoint-sequence-";
+        if (!id.startsWith(prefix)) return id;
+        String slug = id.substring(prefix.length());
+        int firstUnderscore = slug.indexOf('_');
+        if (firstUnderscore <= 0) return id;
+        String method = slug.substring(0, firstUnderscore);
+        String rest = slug.substring(firstUnderscore + 1);
+        int lastUnderscore = rest.lastIndexOf('_');
+        String pathPart = lastUnderscore > 0 ? rest.substring(0, lastUnderscore) : rest;
+        String path = "/" + pathPart.replaceAll("_+", "/");
+        path = path.replaceAll("/+", "/");
+        return method + " " + path;
     }
 
     private String eventTypeName(EventType ev) {

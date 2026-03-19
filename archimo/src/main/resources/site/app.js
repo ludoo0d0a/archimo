@@ -35,12 +35,14 @@
         index = await res.json();
       } catch (e) {
         console.error('Failed to load site-index.json', e);
-        index = { diagrams: [], modules: [], classes: [], events: [], commands: [] };
+        index = { diagrams: [], modules: [], classes: [], events: [], endpoints: [], endpointSequences: [], commands: [] };
       }
       if (!index.diagrams) index.diagrams = [];
       if (!index.modules) index.modules = [];
       if (!index.classes) index.classes = [];
       if (!index.events) index.events = [];
+      if (!index.endpoints) index.endpoints = [];
+      if (!index.endpointSequences) index.endpointSequences = [];
       if (!index.commands) index.commands = [];
       if (typeof mermaid !== 'undefined') {
         mermaid.initialize({
@@ -51,6 +53,7 @@
       }
       bindUI();
       renderDiagramLists();
+      renderEndpointList();
       renderSearch('');
       selectFirstDiagram();
     } catch (err) {
@@ -158,6 +161,94 @@
       const container = document.getElementById(levelHeads[lvl]);
       if (container) container.classList.toggle('hidden', !lists[lvl] || lists[lvl].children.length === 0);
     });
+  }
+
+  function renderEndpointList() {
+    const endpointList = document.getElementById('endpointList');
+    const endpointNav = document.getElementById('endpointNav');
+    if (!endpointList || !endpointNav) return;
+
+    endpointList.innerHTML = '';
+    const endpoints = (index && index.endpoints) ? index.endpoints : [];
+    endpoints
+      .slice()
+      .sort((a, b) => {
+        const ka = `${a.path || ''} ${a.httpMethod || ''}`.toLowerCase();
+        const kb = `${b.path || ''} ${b.httpMethod || ''}`.toLowerCase();
+        return ka.localeCompare(kb);
+      })
+      .forEach(ep => {
+        const li = document.createElement('li');
+        li.className = 'diagram-item endpoint-item';
+        const a = document.createElement('a');
+        a.href = '#';
+        const label = `${ep.httpMethod || 'REQUEST'} ${ep.path || '/'}`;
+        const coverage = endpointCoverage(ep);
+        a.innerHTML = `${escapeHtml(label)} <span class="endpoint-badge ${coverage === 'SEQ' ? 'endpoint-badge-seq' : 'endpoint-badge-flow'}">${coverage}</span>`;
+        a.title = `${label}\n${ep.controllerClass || ''}#${ep.controllerMethod || ''}`;
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          openEndpointSequence(ep);
+        });
+        li.appendChild(a);
+        endpointList.appendChild(li);
+      });
+
+    endpointNav.classList.toggle('hidden', endpointList.children.length === 0);
+  }
+
+  function endpointSequenceDiagramId(endpoint) {
+    if (!endpoint) return null;
+    const raw = `${endpoint.httpMethod || 'REQUEST'}_${endpoint.path || '/'}_${endpoint.controllerMethod || ''}`;
+    const slug = String(raw).replace(/[^a-zA-Z0-9_]/g, '_');
+    return `endpoint-sequence-${slug}`;
+  }
+
+  function endpointCoverage(endpoint) {
+    if (!index || !endpoint) return 'FLOW';
+    let hasSequence = false;
+    if (index.endpointSequences && index.endpointSequences.length) {
+      hasSequence = index.endpointSequences.some(es =>
+        String(es.httpMethod || '') === String(endpoint.httpMethod || '') &&
+        String(es.path || '') === String(endpoint.path || '') &&
+        String(es.controllerMethod || '') === String(endpoint.controllerMethod || '')
+      );
+    } else if (index.diagrams && index.diagrams.length) {
+      const seqId = endpointSequenceDiagramId(endpoint);
+      hasSequence = index.diagrams.some(d => String(d.id || '') === seqId);
+    }
+    return hasSequence ? 'SEQ' : 'FLOW';
+  }
+
+  function openEndpointSequence(endpoint) {
+    if (!index || !index.diagrams || !index.diagrams.length) return;
+    let seqId = endpointSequenceDiagramId(endpoint);
+    if (index.endpointSequences && index.endpointSequences.length) {
+      const match = index.endpointSequences.find(es =>
+        String(es.httpMethod || '') === String(endpoint.httpMethod || '') &&
+        String(es.path || '') === String(endpoint.path || '') &&
+        String(es.controllerMethod || '') === String(endpoint.controllerMethod || '')
+      );
+      if (match && match.plantumlPath) {
+        const fileName = String(match.plantumlPath).split('/').pop();
+        seqId = fileName && fileName.endsWith('.puml') ? fileName.substring(0, fileName.length - '.puml'.length) : seqId;
+      }
+    }
+    const direct = index.diagrams.find(d => String(d.id || '') === seqId);
+    if (direct) {
+      selectDiagram(direct);
+      return;
+    }
+
+    const fallback = index.diagrams.find(d => String(d.id || '').startsWith('endpoint-sequence-'));
+    if (fallback) {
+      selectDiagram(fallback);
+      return;
+    }
+    const endpointFlow = index.diagrams.find(d => String(d.id || '') === 'endpoint-flow');
+    if (endpointFlow) {
+      selectDiagram(endpointFlow);
+    }
   }
 
   function firstSelectableDiagram() {
@@ -487,13 +578,14 @@
     const modulesEl = document.getElementById('modulesResults');
     const classesEl = document.getElementById('classesResults');
     const eventsEl = document.getElementById('eventsResults');
+    const endpointsEl = document.getElementById('endpointsResults');
     const commandsEl = document.getElementById('commandsResults');
     const architectureEl = document.getElementById('architectureResults');
     const messagingEl = document.getElementById('messagingResults');
     const bpmnEl = document.getElementById('bpmnResults');
     const summaryEl = document.getElementById('resultsSummary');
 
-    if (!modulesEl || !classesEl || !eventsEl || !commandsEl || !architectureEl || !messagingEl || !bpmnEl || !summaryEl || !searchPanel) return;
+    if (!modulesEl || !classesEl || !eventsEl || !endpointsEl || !commandsEl || !architectureEl || !messagingEl || !bpmnEl || !summaryEl || !searchPanel) return;
 
     if (!term || term.length < 2) {
       searchPanel.classList.remove('active');
@@ -504,6 +596,7 @@
     modulesEl.innerHTML = '';
     classesEl.innerHTML = '';
     eventsEl.innerHTML = '';
+    endpointsEl.innerHTML = '';
     commandsEl.innerHTML = '';
     architectureEl.innerHTML = '';
     messagingEl.innerHTML = '';
@@ -516,12 +609,14 @@
     const classes = index.classes.filter(c => match(c.className) || match(c.module));
     const events = index.events.filter(e =>
       match(e.eventType) || match(e.publisherModule) || (e.listenerModules || []).some(l => match(l)));
+    const endpoints = (index.endpoints || []).filter(e =>
+      match(e.httpMethod) || match(e.path) || match(e.controllerClass) || match(e.controllerMethod));
     const commands = (index.commands || []).filter(c => match(c.commandType) || match(c.targetModule));
     const architecture = (index.architecture || []).filter(a => match(a.className) || match(a.layer) || match(a.type));
     const messaging = (index.messaging || []).filter(m => match(m.technology) || match(m.destination) || match(m.publisher) || (m.subscribers || []).some(s => match(s)));
     const bpmn = (index.bpmn || []).filter(b => match(b.processId) || match(b.stepName) || match(b.delegate));
 
-    summaryEl.textContent = `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${commands.length} commands, ${architecture.length} arch, ${messaging.length} msg, ${bpmn.length} bpmn for "${term}"`;
+    summaryEl.textContent = `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${endpoints.length} endpoints, ${commands.length} commands, ${architecture.length} arch, ${messaging.length} msg, ${bpmn.length} bpmn for "${term}"`;
 
     modules.forEach(m => {
       const li = document.createElement('li');
@@ -538,6 +633,14 @@
       const listeners = (e.listenerModules || []).join(', ') || '—';
       li.textContent = `${e.eventType} — pub: ${e.publisherModule}, subs: ${listeners}`;
       eventsEl.appendChild(li);
+    });
+    endpoints.forEach(e => {
+      const li = document.createElement('li');
+      const label = `${e.httpMethod || 'REQUEST'} ${e.path || '/'} — ${shortClassName(e.controllerClass)}#${e.controllerMethod || ''}`;
+      li.textContent = label;
+      li.style.cursor = 'pointer';
+      li.onclick = () => openEndpointSequence(e);
+      endpointsEl.appendChild(li);
     });
     commands.forEach(c => {
       const li = document.createElement('li');

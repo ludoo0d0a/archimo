@@ -406,30 +406,32 @@ public final class MermaidOutput implements DiagramOutput {
         if (endpointFlows == null || endpointFlows.isEmpty()) return;
         Path mermaidDir = outputDir.resolve("mermaid");
         Files.createDirectories(mermaidDir);
-        EndpointFlow endpoint = endpointFlows.get(0);
         Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(architectureInfos);
-        String controllerClass = endpoint.controllerClass();
-        String serviceClass = firstDependencyTarget(controllerClass, byLayer.getOrDefault("service", List.of()), classDependencies);
-        String repositoryClass = serviceClass == null ? null
-                : firstDependencyTarget(serviceClass, byLayer.getOrDefault("repository", List.of()), classDependencies);
-        String controller = simpleName(controllerClass);
-        String service = serviceClass != null ? simpleName(serviceClass) : "Service";
-        String repository = repositoryClass != null ? simpleName(repositoryClass) : "Repository";
+        for (EndpointFlow endpoint : endpointFlows) {
+            String controllerClass = endpoint.controllerClass();
+            String serviceClass = firstDependencyTarget(controllerClass, byLayer.getOrDefault("service", List.of()), classDependencies);
+            String repositoryClass = serviceClass == null ? null
+                    : firstDependencyTarget(serviceClass, byLayer.getOrDefault("repository", List.of()), classDependencies);
+            String controller = simpleName(controllerClass);
+            String service = serviceClass != null ? simpleName(serviceClass) : "Service";
+            String repository = repositoryClass != null ? simpleName(repositoryClass) : "Repository";
 
-        StringBuilder m = new StringBuilder();
-        m.append("%% Endpoint sequence\n");
-        m.append("sequenceDiagram\n");
-        m.append("  participant Client\n");
-        m.append("  participant ").append(controller).append("\n");
-        m.append("  participant ").append(service).append("\n");
-        m.append("  participant ").append(repository).append("\n");
-        m.append("  Client->>").append(controller).append(": ").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\n");
-        m.append("  ").append(controller).append("->>").append(service).append(": ").append(endpoint.controllerMethod()).append("()\n");
-        m.append("  ").append(service).append("->>").append(repository).append(": query/persist\n");
-        m.append("  ").append(repository).append("-->>").append(service).append(": data\n");
-        m.append("  ").append(service).append("-->>").append(controller).append(": response model\n");
-        m.append("  ").append(controller).append("-->>Client: HTTP response\n");
-        Files.writeString(mermaidDir.resolve("endpoint-sequence.mmd"), m.toString());
+            StringBuilder m = new StringBuilder();
+            m.append("%% Endpoint sequence\n");
+            m.append("sequenceDiagram\n");
+            m.append("  participant Client\n");
+            m.append("  participant ").append(controller).append("\n");
+            m.append("  participant ").append(service).append("\n");
+            m.append("  participant ").append(repository).append("\n");
+            m.append("  Client->>").append(controller).append(": ").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\n");
+            m.append("  ").append(controller).append("->>").append(service).append(": ").append(endpoint.controllerMethod()).append("()\n");
+            m.append("  ").append(service).append("->>").append(repository).append(": query/persist\n");
+            m.append("  ").append(repository).append("-->>").append(service).append(": data\n");
+            m.append("  ").append(service).append("-->>").append(controller).append(": response model\n");
+            m.append("  ").append(controller).append("-->>Client: HTTP response\n");
+            String sequenceFileName = "endpoint-sequence-" + sanitizeId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod()) + ".mmd";
+            Files.writeString(mermaidDir.resolve(sequenceFileName), m.toString());
+        }
     }
 
     private void writeBpmnSequences(Path outputDir, List<BpmnFlow> flows) throws IOException {

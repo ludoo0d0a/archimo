@@ -46,6 +46,18 @@
         <h3 class="nav-level-title">Flows & Sequences</h3>
         <ul id="diagramListMermaid" class="diagram-list"></ul>
       </div>
+      <div id="endpointNav" class="nav-level">
+        <h3 class="nav-level-title">Endpoints <span class="endpoint-legend" title="SEQ = endpoint has dedicated sequence diagram; FLOW = fallback to endpoint flow diagram">SEQ/FLOW</span></h3>
+        <div class="endpoint-filters">
+          <div id="endpointCoverageFilters" class="endpoint-filter-group" aria-label="Endpoint coverage filters">
+            <button type="button" class="endpoint-filter-btn active" data-coverage="ALL">All</button>
+            <button type="button" class="endpoint-filter-btn" data-coverage="SEQ">SEQ</button>
+            <button type="button" class="endpoint-filter-btn" data-coverage="FLOW">FLOW</button>
+          </div>
+          <div id="endpointMethodFilters" class="endpoint-filter-group" aria-label="Endpoint HTTP method filters"></div>
+        </div>
+        <ul id="endpointList" class="diagram-list"></ul>
+      </div>
       <div class="nav-level">
         <h3 class="nav-level-title">Project Export</h3>
         <div class="project-export-actions">
@@ -93,6 +105,10 @@
           <div class="results-column">
             <h3>Events</h3>
             <ul id="eventsResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>Endpoints</h3>
+            <ul id="endpointsResults"></ul>
           </div>
           <div class="results-column">
             <h3>Commands</h3>

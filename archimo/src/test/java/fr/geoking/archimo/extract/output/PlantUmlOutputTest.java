@@ -30,7 +30,8 @@ class PlantUmlOutputTest {
                         new ClassDependency("com.example.petclinic.OwnerService", "com.example.petclinic.OwnerRepository")
                 ),
                 List.of(
-                        new EndpointFlow("GET", "/owners", "com.example.petclinic.OwnerController", "listOwners")
+                        new EndpointFlow("GET", "/owners", "com.example.petclinic.OwnerController", "listOwners"),
+                        new EndpointFlow("POST", "/owners", "com.example.petclinic.OwnerController", "createOwner")
                 ),
                 List.of(),
                 List.of(),
@@ -77,11 +78,14 @@ class PlantUmlOutputTest {
         assertThat(endpointFlowContent).contains("GET /owners");
         assertThat(endpointFlowContent).contains("OwnerController");
 
-        Path endpointSequence = outputDir.resolve("endpoint-sequence.puml");
-        assertThat(endpointSequence).exists();
-        String endpointSequenceContent = Files.readString(endpointSequence);
-        assertThat(endpointSequenceContent).contains("Client -> OwnerController : GET /owners");
-        assertThat(endpointSequenceContent).contains("OwnerController -> OwnerService : listOwners()");
+        Path endpointSequenceGet = outputDir.resolve("endpoint-sequence-GET__owners_listOwners.puml");
+        assertThat(endpointSequenceGet).exists();
+        String endpointSequenceGetContent = Files.readString(endpointSequenceGet);
+        assertThat(endpointSequenceGetContent).contains("Client -> OwnerController : GET /owners");
+        assertThat(endpointSequenceGetContent).contains("OwnerController -> OwnerService : listOwners()");
+
+        Path endpointSequencePost = outputDir.resolve("endpoint-sequence-POST__owners_createOwner.puml");
+        assertThat(endpointSequencePost).exists();
     }
 
     @Test

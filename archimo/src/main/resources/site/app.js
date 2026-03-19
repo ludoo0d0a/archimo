@@ -3,6 +3,10 @@
   let selectedDiagram = null;
   let showingSource = false;
   let panZoomInstance = null;
+  let endpointCoverageFilter = 'ALL';
+  let endpointMethodFilter = 'ALL';
+  let initialSearchTerm = '';
+  let initialDiagramId = null;
 
   function encodeKroki(str) {
     if (typeof pako === 'undefined') return null;
@@ -44,6 +48,7 @@
       if (!index.endpoints) index.endpoints = [];
       if (!index.endpointSequences) index.endpointSequences = [];
       if (!index.commands) index.commands = [];
+      applyStateFromUrl();
       if (typeof mermaid !== 'undefined') {
         mermaid.initialize({
           startOnLoad: false,
@@ -54,8 +59,8 @@
       bindUI();
       renderDiagramLists();
       renderEndpointList();
-      renderSearch('');
-      selectFirstDiagram();
+      renderSearch(initialSearchTerm);
+      selectInitialDiagram();
     } catch (err) {
       console.error('Report init error', err);
       showError('Could not initialize report: ' + (err.message || String(err)));
@@ -88,12 +93,23 @@
     const searchInput = document.getElementById('searchInput');
     const viewSourceBtn = document.getElementById('viewSourceBtn');
     const themeToggle = document.getElementById('themeToggle');
+    const copyLinkBtn = document.getElementById('copyLinkBtn');
     const fitBtn = document.getElementById('fitBtn');
     const resetBtn = document.getElementById('resetBtn');
 
-    if (searchInput) searchInput.addEventListener('input', (e) => { renderSearch(e.target.value.trim()); });
+    if (searchInput) {
+      searchInput.value = initialSearchTerm;
+      searchInput.addEventListener('input', (e) => {
+        renderSearch(e.target.value.trim());
+        syncUrlState();
+      });
+    }
+    document.addEventListener('keydown', handleGlobalShortcuts);
     if (viewSourceBtn) viewSourceBtn.addEventListener('click', toggleSource);
     if (themeToggle) themeToggle.addEventListener('click', toggleTheme);
+    if (copyLinkBtn) {
+      copyLinkBtn.addEventListener('click', () => copyDeepLink(copyLinkBtn));
+    }
     if (fitBtn) fitBtn.addEventListener('click', () => {
       if (panZoomInstance) {
         panZoomInstance.fit();
@@ -116,6 +132,38 @@
     if (exportPdfBtn) exportPdfBtn.onclick = () => exportCurrentDiagram('pdf');
     if (exportAllZipBtn) exportAllZipBtn.onclick = () => exportAllAsZip();
     if (printAllBtn) printAllBtn.onclick = () => printAllDiagrams();
+
+    const coverageFilters = document.getElementById('endpointCoverageFilters');
+    if (coverageFilters) {
+      coverageFilters.addEventListener('click', (e) => {
+        const resetBtn = e.target.closest('button[data-reset-endpoint-filters]');
+        if (resetBtn) {
+          endpointCoverageFilter = 'ALL';
+          endpointMethodFilter = 'ALL';
+          renderEndpointList();
+          syncUrlState();
+          return;
+        }
+        const btn = e.target.closest('button[data-coverage]');
+        if (!btn) return;
+        endpointCoverageFilter = btn.dataset.coverage || 'ALL';
+        setActiveFilterButton(coverageFilters, 'coverage', endpointCoverageFilter);
+        renderEndpointList();
+        syncUrlState();
+      });
+    }
+
+    const methodFilters = document.getElementById('endpointMethodFilters');
+    if (methodFilters) {
+      methodFilters.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-method]');
+        if (!btn) return;
+        endpointMethodFilter = btn.dataset.method || 'ALL';
+        setActiveFilterButton(methodFilters, 'method', endpointMethodFilter);
+        renderEndpointList();
+        syncUrlState();
+      });
+    }
   }
 
   function byC4Level(d) {
@@ -170,8 +218,13 @@
 
     endpointList.innerHTML = '';
     const endpoints = (index && index.endpoints) ? index.endpoints : [];
+    const coverageFilters = document.getElementById('endpointCoverageFilters');
+    if (coverageFilters) setActiveFilterButton(coverageFilters, 'coverage', endpointCoverageFilter);
+    renderEndpointMethodFilters(endpoints);
+
     endpoints
       .slice()
+      .filter(ep => endpointMatchesFilters(ep))
       .sort((a, b) => {
         const ka = `${a.path || ''} ${a.httpMethod || ''}`.toLowerCase();
         const kb = `${b.path || ''} ${b.httpMethod || ''}`.toLowerCase();
@@ -195,6 +248,45 @@
       });
 
     endpointNav.classList.toggle('hidden', endpointList.children.length === 0);
+  }
+
+  function endpointMatchesFilters(endpoint) {
+    const coverage = endpointCoverage(endpoint);
+    const method = String(endpoint && endpoint.httpMethod ? endpoint.httpMethod : 'REQUEST').toUpperCase();
+    const coverageOk = endpointCoverageFilter === 'ALL' || coverage === endpointCoverageFilter;
+    const methodOk = endpointMethodFilter === 'ALL' || method === endpointMethodFilter;
+    return coverageOk && methodOk;
+  }
+
+  function renderEndpointMethodFilters(endpoints) {
+    const methodFilters = document.getElementById('endpointMethodFilters');
+    if (!methodFilters) return;
+    const methods = Array.from(new Set((endpoints || [])
+      .map(ep => String(ep.httpMethod || 'REQUEST').toUpperCase())
+      .filter(Boolean)))
+      .sort();
+    const allMethods = ['ALL'].concat(methods);
+    if (!allMethods.includes(endpointMethodFilter)) {
+      endpointMethodFilter = 'ALL';
+    }
+    methodFilters.innerHTML = '';
+    allMethods.forEach(method => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'endpoint-filter-btn' + (method === endpointMethodFilter ? ' active' : '');
+      btn.dataset.method = method;
+      btn.textContent = method;
+      methodFilters.appendChild(btn);
+    });
+  }
+
+  function setActiveFilterButton(container, kind, value) {
+    if (!container) return;
+    const selector = kind === 'coverage' ? 'button[data-coverage]' : 'button[data-method]';
+    container.querySelectorAll(selector).forEach(btn => {
+      const btnValue = kind === 'coverage' ? btn.dataset.coverage : btn.dataset.method;
+      btn.classList.toggle('active', String(btnValue) === String(value));
+    });
   }
 
   function endpointSequenceDiagramId(endpoint) {
@@ -273,6 +365,17 @@
     }
   }
 
+  function selectInitialDiagram() {
+    if (initialDiagramId && index && index.diagrams && index.diagrams.length) {
+      const initial = index.diagrams.find(d => String(d.id || '') === String(initialDiagramId));
+      if (initial) {
+        selectDiagram(initial);
+        return;
+      }
+    }
+    selectFirstDiagram();
+  }
+
   function selectDiagram(d) {
     selectedDiagram = d;
     showingSource = false;
@@ -317,6 +420,7 @@
     } else {
       viewerEl.textContent = 'Unknown diagram format.';
     }
+    syncUrlState();
   }
 
   function toggleSource() {
@@ -610,7 +714,7 @@
     const events = index.events.filter(e =>
       match(e.eventType) || match(e.publisherModule) || (e.listenerModules || []).some(l => match(l)));
     const endpoints = (index.endpoints || []).filter(e =>
-      match(e.httpMethod) || match(e.path) || match(e.controllerClass) || match(e.controllerMethod));
+      (match(e.httpMethod) || match(e.path) || match(e.controllerClass) || match(e.controllerMethod)) && endpointMatchesFilters(e));
     const commands = (index.commands || []).filter(c => match(c.commandType) || match(c.targetModule));
     const architecture = (index.architecture || []).filter(a => match(a.className) || match(a.layer) || match(a.type));
     const messaging = (index.messaging || []).filter(m => match(m.technology) || match(m.destination) || match(m.publisher) || (m.subscribers || []).some(s => match(s)));
@@ -636,9 +740,10 @@
     });
     endpoints.forEach(e => {
       const li = document.createElement('li');
+      li.className = 'endpoint-search-item';
       const label = `${e.httpMethod || 'REQUEST'} ${e.path || '/'} — ${shortClassName(e.controllerClass)}#${e.controllerMethod || ''}`;
-      li.textContent = label;
-      li.style.cursor = 'pointer';
+      const coverage = endpointCoverage(e);
+      li.innerHTML = `${escapeHtml(label)} <span class="endpoint-badge ${coverage === 'SEQ' ? 'endpoint-badge-seq' : 'endpoint-badge-flow'}">${coverage}</span>`;
       li.onclick = () => openEndpointSequence(e);
       endpointsEl.appendChild(li);
     });
@@ -662,6 +767,160 @@
       li.textContent = `${b.processId} : ${b.stepName} (delegate: ${b.delegate})`;
       bpmnEl.appendChild(li);
     });
+  }
+
+  function applyStateFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const coverage = String(params.get('epCoverage') || 'ALL').toUpperCase();
+      const method = String(params.get('epMethod') || 'ALL').toUpperCase();
+      const q = params.get('q');
+      const diagramId = params.get('diagram');
+
+      if (coverage === 'ALL' || coverage === 'SEQ' || coverage === 'FLOW') {
+        endpointCoverageFilter = coverage;
+      }
+      endpointMethodFilter = method || 'ALL';
+      initialSearchTerm = q || '';
+      initialDiagramId = diagramId || null;
+    } catch (e) {
+      console.warn('Could not read URL state', e);
+    }
+  }
+
+  function syncUrlState() {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const searchInput = document.getElementById('searchInput');
+      const q = searchInput ? searchInput.value.trim() : '';
+      if (q) params.set('q', q); else params.delete('q');
+
+      if (selectedDiagram && selectedDiagram.id != null) params.set('diagram', String(selectedDiagram.id));
+      else params.delete('diagram');
+
+      if (endpointCoverageFilter && endpointCoverageFilter !== 'ALL') params.set('epCoverage', endpointCoverageFilter);
+      else params.delete('epCoverage');
+
+      if (endpointMethodFilter && endpointMethodFilter !== 'ALL') params.set('epMethod', endpointMethodFilter);
+      else params.delete('epMethod');
+
+      const newQuery = params.toString();
+      const newUrl = newQuery ? `${window.location.pathname}?${newQuery}${window.location.hash || ''}` : `${window.location.pathname}${window.location.hash || ''}`;
+      window.history.replaceState({}, '', newUrl);
+    } catch (e) {
+      console.warn('Could not sync URL state', e);
+    }
+  }
+
+  function handleGlobalShortcuts(e) {
+    const searchInput = document.getElementById('searchInput');
+    if (!searchInput) return;
+    const target = e.target;
+    const tagName = target && target.tagName ? target.tagName.toLowerCase() : '';
+    const isTypingContext = tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable);
+
+    if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTypingContext) {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      if (document.activeElement === searchInput || searchInput.value.trim().length > 0) {
+        searchInput.value = '';
+        renderSearch('');
+        syncUrlState();
+        if (document.activeElement === searchInput) {
+          searchInput.blur();
+        }
+      }
+      return;
+    }
+
+    if (!isTypingContext) {
+      const key = String(e.key || '').toLowerCase();
+      if (e.key === 'ArrowRight' || key === 'j') {
+        e.preventDefault();
+        navigateDiagram(1);
+        return;
+      }
+      if (e.key === 'ArrowLeft' || key === 'k') {
+        e.preventDefault();
+        navigateDiagram(-1);
+      }
+    }
+  }
+
+  function sortedDiagrams() {
+    if (!index || !index.diagrams) return [];
+    return index.diagrams.slice().sort((a, b) => {
+      const la = byC4Level(a);
+      const lb = byC4Level(b);
+      if (la !== lb) return la - lb;
+      return String(a.navLabel || a.title || '').localeCompare(String(b.navLabel || b.title || ''));
+    });
+  }
+
+  function navigateDiagram(step) {
+    const diagrams = sortedDiagrams();
+    if (!diagrams.length) return;
+    if (!selectedDiagram || selectedDiagram.id == null) {
+      selectDiagram(diagrams[0]);
+      return;
+    }
+    const currentId = String(selectedDiagram.id);
+    const idx = diagrams.findIndex(d => String(d.id || '') === currentId);
+    if (idx === -1) {
+      selectDiagram(diagrams[0]);
+      return;
+    }
+    const nextIdx = (idx + step + diagrams.length) % diagrams.length;
+    selectDiagram(diagrams[nextIdx]);
+  }
+
+  async function copyDeepLink(buttonEl) {
+    const url = window.location.href;
+    let copied = false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(url);
+        copied = true;
+      } catch (e) {
+        copied = false;
+      }
+    }
+    if (!copied) {
+      copied = legacyCopy(url);
+    }
+    if (buttonEl) {
+      const initial = buttonEl.textContent;
+      buttonEl.textContent = copied ? 'Copied' : 'Copy failed';
+      buttonEl.classList.toggle('copied', copied);
+      setTimeout(() => {
+        buttonEl.textContent = initial;
+        buttonEl.classList.remove('copied');
+      }, 1100);
+    }
+  }
+
+  function legacyCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch (e) {
+      ok = false;
+    }
+    document.body.removeChild(ta);
+    return ok;
   }
 
   if (document.readyState === 'loading') {

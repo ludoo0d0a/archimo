@@ -84,6 +84,26 @@ header h1 {
   background: rgba(255, 255, 255, 0.1);
 }
 
+#copyLinkBtn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
+  color: var(--header-text);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#copyLinkBtn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+#copyLinkBtn.copied {
+  color: #86efac;
+  border-color: #86efac;
+}
+
 .search-bar input {
   padding: 0.4rem 0.8rem;
   border-radius: 999px;
@@ -148,6 +168,45 @@ main {
   border-radius: 999px;
   padding: 0.12rem 0.35rem;
   vertical-align: middle;
+}
+
+.endpoint-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.5rem;
+}
+
+.endpoint-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.endpoint-filter-btn {
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  color: var(--secondary-text);
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+
+.endpoint-filter-btn:hover {
+  background: var(--nav-hover);
+}
+
+.endpoint-filter-btn.active {
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+  background: var(--accent-bg);
+}
+
+.endpoint-filter-btn-reset {
+  margin-left: auto;
 }
 
 .diagram-list {
@@ -370,6 +429,10 @@ body.dark-mode .endpoint-badge-flow {
   padding: 0.5rem;
   font-size: 0.875rem;
   border-bottom: 1px solid var(--border-color);
+}
+
+.results-column li.endpoint-search-item {
+  cursor: pointer;
 }
 
 .hidden {

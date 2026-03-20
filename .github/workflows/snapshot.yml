@@ -1,0 +1,44 @@
+name: Snapshot release (per-commit)
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build and test
+        run: mvn -B --no-transfer-progress package -Darchimo.generateReport=true
+
+      - name: Prepare snapshot assets
+        run: |
+          JAR=$(ls archimo/target/archimo-*-all.jar)
+          cp "$JAR" archimo/target/archimo-snapshot.jar
+
+      - name: Create or Update Snapshot Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: snapshot
+          name: Snapshot Release
+          body: "Last snapshot build from commit ${{ github.sha }} on ${{ github.ref_name }} branch."
+          prerelease: true
+          files: archimo/target/archimo-snapshot.jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -4,7 +4,7 @@
 
 **Repository:** [https://github.com/ludoo0d0a/archimo](https://github.com/ludoo0d0a/archimo)
 
-Java 17 CLI and test integration to parse **Spring Modulith** applications and extract:
+Java 25 CLI and test integration to parse **Spring Modulith** applications and extract:
 
 - **C4 diagrams (PlantUML)** – all modules and per-module component diagrams  
 - **Module canvases (Asciidoc)** – beans, aggregates, events, config per module  
@@ -61,5 +61,5 @@ See **[docs/GITHUB_PAGES_SETUP.md](docs/GITHUB_PAGES_SETUP.md)** for step-by-ste
 
 ## Requirements
 
-- Java 17+  
+- Java 25+  
 - Target: Maven, Spring Modulith (`spring-modulith-core` / `spring-modulith-docs` on classpath; project mode runs Maven for you)

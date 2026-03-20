@@ -418,10 +418,10 @@ public final class ArchimoMain {
                               repository: '""" + repo + """
                     '
 
-                          - name: Set up JDK 17
+                          - name: Set up JDK 25
                             uses: actions/setup-java@v4
                             with:
-                              java-version: '17'
+                              java-version: '25'
                               distribution: 'temurin'
                               cache: maven
 

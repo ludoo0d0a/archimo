@@ -100,7 +100,7 @@ public class MessagingScanner {
                 Method method = Executors.class.getMethod("newVirtualThreadPerTaskExecutor");
                 return (ExecutorService) method.invoke(null);
             } catch (Exception ignored) {
-                // Java 17 or older: fall through to platform pool
+                // JVM without virtual-thread executors (e.g. Java 20 or older): fall through to platform pool
             }
         }
         int threads = Math.max(2, Runtime.getRuntime().availableProcessors());

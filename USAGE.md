@@ -254,7 +254,7 @@ Then add a test class with `@ExtendWith(ArchimoReportExtension.class)` and `@Arc
 
 ## 6. Requirements
 
-- **Java 17+**
+- **Java 25+**
 - Target project: **Maven**, **Spring Modulith**, with `spring-modulith-core` / `spring-modulith-docs` on the classpath when running the extractor (handled automatically in project mode).
 
 ---

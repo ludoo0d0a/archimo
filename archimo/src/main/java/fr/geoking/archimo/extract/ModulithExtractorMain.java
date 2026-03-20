@@ -1,10 +1,15 @@
 package fr.geoking.archimo.extract;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import org.springframework.modulith.core.ApplicationModules;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -70,7 +75,7 @@ public final class ModulithExtractorMain {
                 System.exit(1);
             }
 
-            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode);
+            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.module, config.serve);
             runProjectMode(newConfig);
 
         } catch (Exception e) {
@@ -80,8 +85,47 @@ public final class ModulithExtractorMain {
     }
 
     private static void runProjectMode(Config config) {
+        Path outDir = null;
         try {
             Path projectDir = config.projectDir.toPath();
+            String appClass = config.appClass;
+            if (appClass == null) {
+                appClass = discoverMainClass(projectDir);
+                if (appClass == null) {
+                    // Try monorepo discovery
+                    System.out.println("Main class not found in root. Searching in sub-modules...");
+                    try (var stream = Files.list(projectDir)) {
+                        List<Path> subDirs = stream.filter(Files::isDirectory).toList();
+                        if (config.module != null) {
+                            Path moduleDir = projectDir.resolve(config.module);
+                            if (Files.isDirectory(moduleDir) && Files.exists(moduleDir.resolve("pom.xml"))) {
+                                appClass = discoverMainClass(moduleDir);
+                                if (appClass != null) {
+                                    projectDir = moduleDir;
+                                    System.out.println("Found in module '" + config.module + "': " + appClass);
+                                }
+                            }
+                        } else {
+                            for (Path subDir : subDirs) {
+                                if (Files.exists(subDir.resolve("pom.xml"))) {
+                                    appClass = discoverMainClass(subDir);
+                                    if (appClass != null) {
+                                        projectDir = subDir;
+                                        System.out.println("Auto-discovered in module '" + subDir.getFileName() + "': " + appClass);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (appClass == null) {
+                    System.err.println("Could not discover main application class. Use --app-class=fully.qualified.MainClass or --module=<name>");
+                    System.exit(1);
+                }
+                System.out.println("Discovered application class: " + appClass);
+            }
+
             Path target = projectDir.resolve("target");
             Path classes = target.resolve("classes");
             Path dependencyDir = target.resolve("dependency");
@@ -95,16 +139,6 @@ public final class ModulithExtractorMain {
                 }
             }
 
-            String appClass = config.appClass;
-            if (appClass == null) {
-                appClass = discoverMainClass(projectDir);
-                if (appClass == null) {
-                    System.err.println("Could not discover main application class. Use --app-class=fully.qualified.MainClass");
-                    System.exit(1);
-                }
-                System.out.println("Discovered application class: " + appClass);
-            }
-
             String depJars = Files.list(dependencyDir)
                     .filter(p -> p.toString().endsWith(".jar"))
                     .map(Path::toAbsolutePath)
@@ -112,7 +146,8 @@ public final class ModulithExtractorMain {
                     .collect(Collectors.joining(java.io.File.pathSeparator));
             String cp = classes.toAbsolutePath() + java.io.File.pathSeparator + depJars + java.io.File.pathSeparator + getCurrentJarPath();
 
-            String outDir = config.outputDir != null ? config.outputDir.toPath().toAbsolutePath().toString() : target.resolve("archimo-docs").toAbsolutePath().toString();
+            outDir = config.outputDir != null ? config.outputDir.toPath() : target.resolve("archimo-docs");
+            String outDirStr = outDir.toAbsolutePath().toString();
 
             // Use a Java argument file to avoid very long command lines on Windows (CreateProcess error=206)
             List<String> javaArgs = new ArrayList<>();
@@ -120,7 +155,7 @@ public final class ModulithExtractorMain {
             javaArgs.add(cp);
             javaArgs.add(ModulithExtractorMain.class.getName());
             javaArgs.add("--app-class=" + appClass);
-            javaArgs.add("--output-dir=" + outDir);
+            javaArgs.add("--output-dir=" + outDirStr);
             javaArgs.add("--project-dir=" + config.projectDir.getAbsolutePath());
             if (config.fullDependencyMode) {
                 javaArgs.add("--full-dependency-mode");
@@ -137,6 +172,9 @@ public final class ModulithExtractorMain {
             pb.inheritIO();
             pb.directory(projectDir.toFile());
             int exit = pb.start().waitFor();
+            if (exit == 0 && config.serve && outDir != null) {
+                startWebServer(outDir.resolve("site"));
+            }
             System.exit(exit);
         } catch (Exception e) {
             e.printStackTrace();
@@ -176,21 +214,52 @@ public final class ModulithExtractorMain {
 
     private static String discoverMainClass(Path projectDir) {
         Path pom = projectDir.resolve("pom.xml");
-        if (!java.nio.file.Files.isRegularFile(pom)) return null;
-        try {
-            String content = java.nio.file.Files.readString(pom);
-            if (content.contains("spring-boot-maven-plugin")) {
-                String mainClass = extractTagValue(content, "<mainClass>", "</mainClass>");
-                if (mainClass != null && !mainClass.isBlank()) {
-                    return mainClass.trim();
+        if (java.nio.file.Files.isRegularFile(pom)) {
+            try {
+                String content = java.nio.file.Files.readString(pom);
+                if (content.contains("spring-boot-maven-plugin")) {
+                    String mainClass = extractTagValue(content, "<mainClass>", "</mainClass>");
+                    if (mainClass != null && !mainClass.isBlank()) {
+                        return mainClass.trim();
+                    }
+                    String startClass = extractTagValue(content, "<start-class>", "</start-class>");
+                    if (startClass != null && !startClass.isBlank()) {
+                        return startClass.trim();
+                    }
                 }
-                String startClass = extractTagValue(content, "<start-class>", "</start-class>");
-                if (startClass != null && !startClass.isBlank()) {
-                    return startClass.trim();
+            } catch (IOException ignored) {
+            }
+        }
+        return findMainClassInSources(projectDir);
+    }
+
+    private static String findMainClassInSources(Path projectDir) {
+        Path src = projectDir.resolve("src/main/java");
+        if (!Files.isDirectory(src)) return null;
+        try (var walk = Files.walk(src)) {
+            List<Path> candidates = walk
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .toList();
+
+            for (Path p : candidates) {
+                String content = Files.readString(p);
+                if (content.contains("@SpringBootApplication") ||
+                    content.contains("implements ApplicationRunner") ||
+                    content.contains("implements CommandLineRunner")) {
+                    return extractFullClassName(p, src);
                 }
             }
-        } catch (IOException ignored) { }
+        } catch (IOException ignored) {
+        }
         return null;
+    }
+
+    private static String extractFullClassName(Path javaFile, Path srcDir) {
+        String relative = srcDir.relativize(javaFile).toString().replace(File.separatorChar, '.');
+        if (relative.endsWith(".java")) {
+            return relative.substring(0, relative.length() - ".java".length());
+        }
+        return relative;
     }
 
     private static String extractTagValue(String content, String openTag, String closeTag) {
@@ -228,6 +297,9 @@ public final class ModulithExtractorMain {
             System.out.println("  - Mermaid: " + outputDir.resolve("mermaid"));
 
             writeGitHubSummary(result, outputDir);
+            if (config.serve) {
+                startWebServer(outputDir.resolve("site"));
+            }
         } catch (Exception e) {
             e.printStackTrace();
             System.exit(1);
@@ -266,6 +338,70 @@ public final class ModulithExtractorMain {
             System.out.println("GitHub Actions summary written.");
         } catch (IOException e) {
             System.err.println("Failed to write GitHub Actions summary: " + e.getMessage());
+        }
+    }
+
+    private static void startWebServer(Path siteDir) {
+        if (!Files.isDirectory(siteDir)) {
+            System.err.println("Site directory not found: " + siteDir.toAbsolutePath());
+            return;
+        }
+        try {
+            int port = 8080;
+            HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+            server.createContext("/", new StaticFileHandler(siteDir));
+            server.setExecutor(null);
+            System.out.println("\nWeb server started at http://localhost:" + port);
+            System.out.println("To run it manually: python3 -m http.server -d " + siteDir.toAbsolutePath() + " " + port);
+            System.out.println("Press Ctrl+C to stop.\n");
+            server.start();
+
+            // Keep alive
+            Thread.currentThread().join();
+        } catch (Exception e) {
+            System.err.println("Failed to start web server: " + e.getMessage());
+        }
+    }
+
+    private static class StaticFileHandler implements HttpHandler {
+        private final Path baseDir;
+
+        StaticFileHandler(Path baseDir) {
+            this.baseDir = baseDir;
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String path = exchange.getRequestURI().getPath();
+            if (path.equals("/")) path = "/index.html";
+
+            Path file = baseDir.resolve(path.substring(1));
+            if (Files.exists(file) && !Files.isDirectory(file)) {
+                String contentType = getContentType(file);
+                byte[] content = Files.readAllBytes(file);
+                exchange.getResponseHeaders().set("Content-Type", contentType);
+                exchange.sendResponseHeaders(200, content.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(content);
+                }
+            } else {
+                String response = "404 Not Found";
+                exchange.sendResponseHeaders(404, response.length());
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(response.getBytes());
+                }
+            }
+        }
+
+        private String getContentType(Path file) {
+            String name = file.getFileName().toString();
+            if (name.endsWith(".html")) return "text/html";
+            if (name.endsWith(".css")) return "text/css";
+            if (name.endsWith(".js")) return "application/javascript";
+            if (name.endsWith(".json")) return "application/json";
+            if (name.endsWith(".svg")) return "image/svg+xml";
+            if (name.endsWith(".puml")) return "text/plain";
+            return "application/octet-stream";
         }
     }
 
@@ -342,12 +478,12 @@ public final class ModulithExtractorMain {
     private static void printUsage() {
         System.err.println("Usage:");
         System.err.println("  Classpath mode (run with project + deps on classpath):");
-        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.ModulithExtractorMain --app-class=<fqcn> [--output-dir=<path>]");
-        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.ModulithExtractorMain --base-package=<package> [--output-dir=<path>]");
+        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ModulithExtractorMain --app-class=<fqcn> [--output-dir=<path>]");
+        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ModulithExtractorMain --base-package=<package> [--output-dir=<path>]");
         System.err.println("  Project mode (builds with Maven then extracts):");
-        System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--output-dir=<path>] [--full-dependency-mode]");
+        System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve]");
         System.err.println("  GitHub mode (clones repo, builds with Maven then extracts):");
-        System.err.println("    java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--output-dir=<path>] [--full-dependency-mode]");
+        System.err.println("    java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve]");
         System.err.println("  Workflow generation:");
         System.err.println("    java -jar archimo-all.jar --generate-workflow");
     }
@@ -360,8 +496,10 @@ public final class ModulithExtractorMain {
         final String githubUrl;
         final boolean generateWorkflow;
         final boolean fullDependencyMode;
+        final String module;
+        final boolean serve;
 
-        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode) {
+        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode, String module, boolean serve) {
             this.projectDir = projectDir;
             this.appClass = appClass;
             this.basePackage = basePackage;
@@ -369,6 +507,8 @@ public final class ModulithExtractorMain {
             this.githubUrl = githubUrl;
             this.generateWorkflow = generateWorkflow;
             this.fullDependencyMode = fullDependencyMode;
+            this.module = module;
+            this.serve = serve;
         }
 
         static Config parse(String[] args) {
@@ -379,6 +519,8 @@ public final class ModulithExtractorMain {
             String githubUrl = null;
             boolean generateWorkflow = false;
             boolean fullDependencyMode = false;
+            String module = null;
+            boolean serve = false;
             for (String a : args) {
                 if (a.startsWith("--project-dir=")) projectDir = new java.io.File(a.substring("--project-dir=".length()));
                 else if (a.startsWith("--app-class=")) appClass = a.substring("--app-class=".length()).trim();
@@ -387,10 +529,12 @@ public final class ModulithExtractorMain {
                 else if (a.startsWith("--github-url=")) githubUrl = a.substring("--github-url=".length()).trim();
                 else if (a.equals("--generate-workflow")) generateWorkflow = true;
                 else if (a.equals("--full-dependency-mode")) fullDependencyMode = true;
+                else if (a.startsWith("--module=")) module = a.substring("--module=".length()).trim();
+                else if (a.equals("--serve")) serve = true;
             }
             if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow) return null;
             if (projectDir != null && !projectDir.isDirectory()) return null;
-            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode);
+            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, module, serve);
         }
     }
 }

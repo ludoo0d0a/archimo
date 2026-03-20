@@ -8,7 +8,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Enables architecture report generation when tests run (JaCoCo-style).
+ * Enables architecture report generation when tests run.
  * Add this to a test class to generate PlantUML, Mermaid and website report
  * under {@code target/archimo-docs} (or {@code archimo.report.outputDir}).
  *

@@ -35,6 +35,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -73,69 +77,105 @@ public final class ModulithExtractor {
     public ExtractResult extract() throws IOException {
         Files.createDirectories(outputDir);
 
-        int classesParsed = 0;
-        int bpmnFilesParsed = 0;
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        try {
+            // 1. Core extraction (synchronous for now as it's fast and modules are needed)
+            List<ModuleEvents> eventsMap = modules != null ? buildEventsMap() : List.of();
+            List<EventFlow> flows = modules != null ? buildEventFlows() : List.of();
+            List<SequenceFlow> sequences = modules != null ? buildSequences() : List.of();
+            List<ModuleDependency> moduleDependencies = modules != null ? buildModuleDependencies() : List.of();
+            List<CommandFlow> commandFlows = modules != null ? buildCommandFlowsFromEventFlows(flows) : List.of();
 
-        // 1. Core extraction
-        List<ModuleEvents> eventsMap = modules != null ? buildEventsMap() : List.of();
-        List<EventFlow> flows = modules != null ? buildEventFlows() : List.of();
-        List<SequenceFlow> sequences = modules != null ? buildSequences() : List.of();
-        List<ModuleDependency> moduleDependencies = modules != null ? buildModuleDependencies() : List.of();
-        List<CommandFlow> commandFlows = modules != null ? buildCommandFlowsFromEventFlows(flows) : List.of();
+            // 2. Advanced scanners (parallel)
+            BpmnScanner bpmnScanner = new BpmnScanner();
+            CompletableFuture<List<BpmnFlow>> bpmnFuture = CompletableFuture.supplyAsync(() -> bpmnScanner.scan(projectDir), executor);
 
-        // 2. Advanced scanners
-        List<ArchitectureInfo> architectureInfos = new ArrayList<>();
-        List<ClassDependency> classDependencies = new ArrayList<>();
-        List<EntityRelation> entityRelations = new ArrayList<>();
-        List<EndpointFlow> endpointFlows = new ArrayList<>();
-        List<MessagingFlow> messagingFlows = new ArrayList<>();
-        if (projectDir != null) {
-            Path classesPath = findClassesPath(projectDir);
-            if (classesPath != null && Files.isDirectory(classesPath)) {
-                JavaClasses classes = new ClassFileImporter().importPath(classesPath);
-                classesParsed = classes.size();
-                ArchitectureScanner architectureScanner = new ArchitectureScanner();
-                architectureInfos = architectureScanner.scan(classes);
-                classDependencies = architectureScanner.scanClassDependencies(classes, architectureInfos);
-                entityRelations = architectureScanner.scanEntityRelations(classes);
-                endpointFlows = new EndpointScanner().scan(classes);
-                messagingFlows = new MessagingScanner().scan(classes);
+            final List<ArchitectureInfo> architectureInfos;
+            final List<ClassDependency> classDependencies;
+            final List<EntityRelation> entityRelations;
+            final List<EndpointFlow> endpointFlows;
+            final List<MessagingFlow> messagingFlows;
+            final int classesParsedCount;
+
+            if (projectDir != null) {
+                Path classesPath = findClassesPath(projectDir);
+                if (classesPath != null && Files.isDirectory(classesPath)) {
+                    JavaClasses classes = new ClassFileImporter().importPath(classesPath);
+                    classesParsedCount = classes.size();
+
+                    ArchitectureScanner architectureScanner = new ArchitectureScanner();
+                    CompletableFuture<List<ArchitectureInfo>> archFuture = CompletableFuture.supplyAsync(() -> architectureScanner.scan(classes), executor);
+                    CompletableFuture<List<EntityRelation>> entityFuture = CompletableFuture.supplyAsync(() -> architectureScanner.scanEntityRelations(classes), executor);
+                    CompletableFuture<List<EndpointFlow>> endpointFuture = CompletableFuture.supplyAsync(() -> new EndpointScanner().scan(classes), executor);
+                    CompletableFuture<List<MessagingFlow>> messagingFuture = CompletableFuture.supplyAsync(() -> new MessagingScanner().scan(classes), executor);
+
+                    architectureInfos = archFuture.join();
+                    // Class dependencies need architecture info
+                    classDependencies = architectureScanner.scanClassDependencies(classes, architectureInfos);
+                    entityRelations = entityFuture.join();
+                    endpointFlows = endpointFuture.join();
+                    messagingFlows = messagingFuture.join();
+                } else {
+                    architectureInfos = List.of();
+                    classDependencies = List.of();
+                    entityRelations = List.of();
+                    endpointFlows = List.of();
+                    messagingFlows = List.of();
+                    classesParsedCount = 0;
+                }
+            } else {
+                architectureInfos = List.of();
+                classDependencies = List.of();
+                entityRelations = List.of();
+                endpointFlows = List.of();
+                messagingFlows = List.of();
+                classesParsedCount = 0;
+            }
+
+            List<BpmnFlow> bpmnFlows = bpmnFuture.join();
+            int bpmnFilesParsed = bpmnScanner.getFilesParsed();
+
+            System.out.println("Parsed " + classesParsedCount + " classes and " + bpmnFilesParsed + " BPMN files.");
+
+            ExtractResult result = new ExtractResult(
+                    eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,
+                    endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos, fullDependencyMode
+            );
+
+            // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
+            for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
+                output.write(modules, outputDir, result);
+            }
+
+            // 4. Generate static website (architecture-as-code navigation & search)
+            writeSite(eventsMap, flows, endpointFlows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows);
+
+            // 5. Write JSON artifacts last (use absolute path so output location is unambiguous)
+            Path jsonDir = outputDir.toAbsolutePath().resolve("json");
+            Files.createDirectories(jsonDir);
+            objectMapper.writeValue(jsonDir.resolve("events-map.json").toFile(), eventsMap);
+            objectMapper.writeValue(jsonDir.resolve("event-flows.json").toFile(), flows);
+            objectMapper.writeValue(jsonDir.resolve("command-flows.json").toFile(), commandFlows);
+            objectMapper.writeValue(jsonDir.resolve("sequences.json").toFile(), sequences);
+            objectMapper.writeValue(jsonDir.resolve("module-dependencies.json").toFile(), moduleDependencies);
+            objectMapper.writeValue(jsonDir.resolve("class-dependencies.json").toFile(), classDependencies);
+            objectMapper.writeValue(jsonDir.resolve("entity-relations.json").toFile(), entityRelations);
+            objectMapper.writeValue(jsonDir.resolve("endpoint-flows.json").toFile(), endpointFlows);
+            objectMapper.writeValue(jsonDir.resolve("endpoint-sequences.json").toFile(), buildEndpointSequencesIndex(endpointFlows));
+            objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
+
+            return result;
+        } finally {
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
             }
         }
-        BpmnScanner bpmnScanner = new BpmnScanner();
-        List<BpmnFlow> bpmnFlows = bpmnScanner.scan(projectDir);
-        bpmnFilesParsed = bpmnScanner.getFilesParsed();
-
-        System.out.println("Parsed " + classesParsed + " classes and " + bpmnFilesParsed + " BPMN files.");
-
-        ExtractResult result = new ExtractResult(
-                eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,
-                endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos, fullDependencyMode
-        );
-
-        // 3. Delegate diagram outputs to pluggable writers (PlantUML, Mermaid, …)
-        for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
-            output.write(modules, outputDir, result);
-        }
-
-        // 4. Generate static website (architecture-as-code navigation & search)
-        writeSite(eventsMap, flows, endpointFlows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows);
-
-        // 5. Write JSON artifacts last (use absolute path so output location is unambiguous)
-        Path jsonDir = outputDir.toAbsolutePath().resolve("json");
-        Files.createDirectories(jsonDir);
-        objectMapper.writeValue(jsonDir.resolve("events-map.json").toFile(), eventsMap);
-        objectMapper.writeValue(jsonDir.resolve("event-flows.json").toFile(), flows);
-        objectMapper.writeValue(jsonDir.resolve("command-flows.json").toFile(), commandFlows);
-        objectMapper.writeValue(jsonDir.resolve("sequences.json").toFile(), sequences);
-        objectMapper.writeValue(jsonDir.resolve("module-dependencies.json").toFile(), moduleDependencies);
-        objectMapper.writeValue(jsonDir.resolve("class-dependencies.json").toFile(), classDependencies);
-        objectMapper.writeValue(jsonDir.resolve("entity-relations.json").toFile(), entityRelations);
-        objectMapper.writeValue(jsonDir.resolve("endpoint-flows.json").toFile(), endpointFlows);
-        objectMapper.writeValue(jsonDir.resolve("endpoint-sequences.json").toFile(), buildEndpointSequencesIndex(endpointFlows));
-        objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
-
-        return result;
     }
 
     private List<ModuleEvents> buildEventsMap() {

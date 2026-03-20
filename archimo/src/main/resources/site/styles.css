@@ -500,7 +500,7 @@ body.dark-mode .endpoint-badge-data {
   margin: -0.5rem 0 0.75rem 0;
   font-size: 0.8125rem;
   line-height: 1.45;
-  color: var(--text-muted, #64748b);
+  color: var(--secondary-text);
   display: flex;
   flex-wrap: wrap;
   align-items: center;

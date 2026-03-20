@@ -184,6 +184,44 @@ class ModulithExtractorTest {
         assertThat(plantUmlLevels.get("architecture-flow")).isEqualTo(0);
         assertThat(plantUmlLevels.get("architecture-sequence")).isEqualTo(0);
         assertThat(plantUmlLevels.get("architecture-class-diagram")).isEqualTo(4);
+
+        JsonNode systemContext = null;
+        JsonNode components = null;
+        JsonNode archClass = null;
+        for (JsonNode e : diagrams) {
+            String id = e.path("id").asText();
+            if ("system-context".equals(id)) {
+                systemContext = e;
+            } else if ("components".equals(id)) {
+                components = e;
+            } else if ("architecture-class-diagram".equals(id)) {
+                archClass = e;
+            }
+        }
+        assertThat(systemContext).isNotNull();
+        assertThat(systemContext.path("provenanceSource").asText()).isEqualTo("archimo");
+        assertThat(systemContext.path("provenanceNotation").asText()).isEqualTo("c4-plantuml");
+        assertThat(systemContext.path("provenanceRenderer").asText()).isEqualTo("kroki-plantuml");
+
+        assertThat(components).isNotNull();
+        assertThat(components.path("provenanceSource").asText()).isEqualTo("spring-modulith");
+        assertThat(components.path("provenanceNotation").asText()).isEqualTo("c4-plantuml");
+
+        assertThat(archClass).isNotNull();
+        assertThat(archClass.path("provenanceSource").asText()).isEqualTo("archimo");
+        assertThat(archClass.path("provenanceNotation").asText()).isEqualTo("plantuml");
+
+        JsonNode anyMermaid = null;
+        for (JsonNode e : diagrams) {
+            if ("mermaid".equals(e.path("format").asText())) {
+                anyMermaid = e;
+                break;
+            }
+        }
+        assertThat(anyMermaid).isNotNull();
+        assertThat(anyMermaid.path("provenanceSource").asText()).isEqualTo("archimo");
+        assertThat(anyMermaid.path("provenanceNotation").asText()).isEqualTo("mermaid");
+        assertThat(anyMermaid.path("provenanceRenderer").asText()).isEqualTo("mermaid-js");
     }
 
     @Test

@@ -239,6 +239,14 @@ main {
   font-weight: 600;
 }
 
+.diagram-item-empty span {
+  display: block;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--secondary-text);
+  font-style: italic;
+}
+
 .endpoint-item a {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.78rem;

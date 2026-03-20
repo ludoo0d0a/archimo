@@ -207,10 +207,26 @@
         li.appendChild(a);
         list.appendChild(li);
       });
-    [1, 2, 3, 4, 0].forEach(lvl => {
-      const container = document.getElementById(levelHeads[lvl]);
-      if (container) container.classList.toggle('hidden', !lists[lvl] || lists[lvl].children.length === 0);
+    // Always show C4 L1–L4 in the sidebar; use a placeholder when nothing was generated for that level.
+    [1, 2, 3, 4].forEach(lvl => {
+      const list = lists[lvl];
+      if (list && list.children.length === 0) {
+        const li = document.createElement('li');
+        li.className = 'diagram-item diagram-item-empty';
+        const span = document.createElement('span');
+        span.textContent = 'No diagrams at this level.';
+        li.appendChild(span);
+        list.appendChild(li);
+      }
     });
+    [1, 2, 3, 4].forEach(lvl => {
+      const container = document.getElementById(levelHeads[lvl]);
+      if (container) container.classList.remove('hidden');
+    });
+    const mermaidSection = document.getElementById(levelHeads[0]);
+    if (mermaidSection) {
+      mermaidSection.classList.toggle('hidden', !lists[0] || lists[0].children.length === 0);
+    }
   }
 
   function renderEndpointList() {

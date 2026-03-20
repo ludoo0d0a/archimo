@@ -10,7 +10,7 @@ Java 17 CLI and test integration to parse **Spring Modulith** applications and e
 - **Module canvases (Asciidoc)** – beans, aggregates, events, config per module  
 - **Event map** – which modules publish/listen to which internal events  
 - **Flows & sequences** – event flows and **Mermaid** sequence/dependency diagrams  
-- **Website report** – static HTML report to browse diagrams and search modules/classes/events (JaCoCo-style)
+- **Website report** – static HTML report to browse diagrams and search modules/classes/events
 
 ## Quick start
 

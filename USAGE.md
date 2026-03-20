@@ -1,6 +1,6 @@
 # Archimo – Usage
 
-Archimo extracts **C4 (PlantUML)**, **Mermaid** diagrams and a **static website report** from Spring Modulith applications. You can run it as an **executable JAR** (e.g. in CI) or **from your tests** (JaCoCo-style) so reports are produced automatically.
+Archimo extracts **C4 (PlantUML)**, **Mermaid** diagrams and a **static website report** from Spring Modulith applications. You can run it as an **executable JAR** (e.g. in CI) or **from your tests** so reports are produced automatically.
 
 ---
 
@@ -70,7 +70,7 @@ java -cp "target/classes:target/dependency/*:path/to/archimo-*-all.jar" \
 
 ---
 
-## 3. Include in tests (JaCoCo-style)
+## 3. Include in tests
 
 You can run the extractor **during your test phase** so that every `mvn test` (or CI test run) produces the same outputs (PlantUML, Mermaid, JSON, website). Two options: **JUnit 5 extension** or **one-off test + system property**.
 
@@ -150,7 +150,7 @@ void generateArchitectureReport() throws Exception {
 
 ---
 
-## 4. Output layout (like JaCoCo report)
+## 4. Output layout
 
 All paths are relative to `--output-dir` (or `target/archimo-docs` when using the extension).
 
@@ -160,7 +160,7 @@ All paths are relative to `--output-dir` (or `target/archimo-docs` when using th
 | **Module canvases** | `*.adoc` | Asciidoc tables per module (beans, events, config) |
 | **Mermaid** | `mermaid/*.mmd` | Event flows, sequences, module dependencies |
 | **JSON** | `json/*.json` | `events-map.json`, `event-flows.json`, `sequences.json`, `module-dependencies.json`, `extract-result.json` |
-| **Website report** | `site/` | Static HTML/CSS/JS report: browse C4 diagrams, search modules/classes/events (similar to JaCoCo HTML report) |
+| **Website report** | `site/` | Static HTML/CSS/JS report: browse C4 diagrams, search modules/classes/events |
 
 The **website** (`site/index.html`) is a single-page app that loads `site-index.json` and lets you filter diagrams and search modules, classes and events.
 

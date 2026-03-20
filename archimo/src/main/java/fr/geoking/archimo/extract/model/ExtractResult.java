@@ -21,5 +21,9 @@ public record ExtractResult(
     List<MessagingFlow> messagingFlows,
     List<BpmnFlow> bpmnFlows,
     List<ArchitectureInfo> architectureInfos,
+    List<OpenApiSpecFile> openApiSpecFiles,
+    List<ExternalHttpClient> externalHttpClients,
+    /** Fully qualified main application class when discovered, else null. */
+    String applicationMainClass,
     boolean fullDependencyMode
 ) {}

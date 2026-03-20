@@ -5,6 +5,7 @@ import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.ExternalHttpClient;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -49,10 +50,25 @@ class PlantUmlOutputTest {
                         new ArchitectureInfo("com.example.petclinic.OwnerService", "service", "mvc"),
                         new ArchitectureInfo("com.example.petclinic.OwnerRepository", "repository", "mvc")
                 ),
+                List.of(),
+                List.of(
+                        new ExternalHttpClient("FEIGN", "com.example.petclinic.PaymentClient", "name=payment-service")
+                ),
+                "com.example.petclinic.PetclinicApplication",
                 false
         );
 
         new PlantUmlOutput().write(null, outputDir, result);
+
+        Path systemContext = outputDir.resolve("system-context.puml");
+        assertThat(systemContext).exists();
+        String systemContextContent = Files.readString(systemContext);
+        assertThat(systemContextContent).contains("System(app");
+        assertThat(systemContextContent).contains("PetclinicApplication");
+        assertThat(systemContextContent).contains("com.example.petclinic.PetclinicApplication");
+        assertThat(systemContextContent).contains("payment-service");
+        assertThat(systemContextContent).contains("owner-events");
+        assertThat(systemContextContent).contains("Person_Ext(user");
 
         Path diagram = outputDir.resolve("architecture-class-diagram.puml");
         assertThat(diagram).exists();
@@ -142,6 +158,9 @@ class PlantUmlOutputTest {
                         new ArchitectureInfo("com.example.petclinic.OwnerController", "controller", "mvc"),
                         new ArchitectureInfo("com.example.petclinic.OwnerEntity", "domain", "mvc")
                 ),
+                List.of(),
+                List.of(),
+                null,
                 true
         );
 

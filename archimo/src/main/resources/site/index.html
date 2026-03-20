@@ -15,7 +15,7 @@
     <h1>Archimo Architecture Explorer</h1>
     <div class="header-actions">
       <div class="search-bar">
-        <input id="searchInput" type="search" placeholder="Search modules, classes, events, commands…" />
+        <input id="searchInput" type="search" placeholder="Search modules, classes, events, OpenAPI, HTTP clients…" />
       </div>
       <button id="copyLinkBtn" class="header-link-btn" title="Copy deep link" aria-label="Copy deep link">Copy Link</button>
       <button id="themeToggle" title="Toggle Dark/Light Mode" aria-label="Toggle theme">
@@ -127,6 +127,14 @@
           <div class="results-column">
             <h3>BPMN</h3>
             <ul id="bpmnResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>OpenAPI / Swagger</h3>
+            <ul id="openApiResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>External HTTP clients</h3>
+            <ul id="externalHttpResults"></ul>
           </div>
         </div>
       </section>

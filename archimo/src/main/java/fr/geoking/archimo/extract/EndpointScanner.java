@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.StreamSupport;
 
 /**
  * Extracts HTTP endpoint mappings from Spring MVC controllers.
@@ -17,33 +18,21 @@ import java.util.Set;
 public class EndpointScanner {
 
     public List<EndpointFlow> scan(JavaClasses classes) {
-        List<EndpointFlow> flows = new ArrayList<>();
-        Set<String> unique = new LinkedHashSet<>();
-
-        for (JavaClass clazz : classes) {
-            if (!isController(clazz)) continue;
-
-            String basePath = extractPathFromClass(clazz);
-            for (JavaMethod method : clazz.getMethods()) {
-                if (!isEndpointMethod(method)) continue;
-                String httpMethod = detectHttpMethod(method);
-                String methodPath = extractPathFromMethod(method);
-                String fullPath = normalizePath(basePath, methodPath);
-
-                EndpointFlow flow = new EndpointFlow(
-                        httpMethod,
-                        fullPath,
-                        clazz.getFullName(),
-                        method.getName()
-                );
-                String key = flow.httpMethod() + " " + flow.path() + " " + flow.controllerClass() + "#" + flow.controllerMethod();
-                if (unique.add(key)) {
-                    flows.add(flow);
-                }
-            }
-        }
-
-        return flows;
+        return StreamSupport.stream(classes.spliterator(), false)
+                .filter(this::isController)
+                .flatMap(clazz -> {
+                    String basePath = extractPathFromClass(clazz);
+                    return clazz.getMethods().stream()
+                            .filter(this::isEndpointMethod)
+                            .map(method -> new EndpointFlow(
+                                    detectHttpMethod(method),
+                                    normalizePath(basePath, extractPathFromMethod(method)),
+                                    clazz.getFullName(),
+                                    method.getName()
+                            ));
+                })
+                .distinct()
+                .toList();
     }
 
     private boolean isController(JavaClass clazz) {
@@ -140,4 +129,3 @@ public class EndpointScanner {
         return value.replaceAll("^/+", "").replaceAll("/+$", "");
     }
 }
-

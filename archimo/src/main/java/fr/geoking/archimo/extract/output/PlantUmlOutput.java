@@ -14,12 +14,15 @@ import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Writes PlantUML C4 diagrams and module canvases using Spring Modulith's Documenter.
@@ -55,109 +58,102 @@ public final class PlantUmlOutput implements DiagramOutput {
 
     private void writeArchitectureDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
         if (infos.isEmpty()) return;
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\n!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Component.puml\n");
-        p.append("LAYOUT_WITH_LEGEND()\n");
-        p.append("Title Architecture Layers\n");
-        for (ArchitectureInfo info : infos) {
-            String shortName = info.className().substring(info.className().lastIndexOf('.') + 1);
-            p.append("Component(").append(shortName).append(", \"").append(shortName).append("\", \"").append(info.layer()).append("\")\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("architecture-layers.puml")))) {
+            pw.println("@startuml");
+            pw.println("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Component.puml");
+            pw.println("LAYOUT_WITH_LEGEND()");
+            pw.println("Title Architecture Layers");
+            infos.stream().forEach(info -> {
+                String shortName = info.className().substring(info.className().lastIndexOf('.') + 1);
+                pw.println("Component(" + shortName + ", \"" + shortName + "\", \"" + info.layer() + "\")");
+            });
+            pw.println("@enduml");
         }
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("architecture-layers.puml"), p.toString());
     }
 
     /**
      * Fallback class-level architecture diagram for non-Modulith projects.
-     * It groups scanned classes by layer and always exposes a readable
+     * It groups scanned classes by layer and exposes a readable
      * controller -> service -> repository flow when those layers exist.
      */
     private void writeArchitectureClassDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
         if (infos.isEmpty()) return;
 
-        Map<String, List<ArchitectureInfo>> byLayer = new LinkedHashMap<>();
-        for (ArchitectureInfo info : infos) {
-            byLayer.computeIfAbsent(info.layer(), k -> new ArrayList<>()).add(info);
-        }
+        Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(infos);
 
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\n");
-        p.append("title Class Architecture (Controller-Service-Repository)\n");
-        p.append("skinparam packageStyle rectangle\n");
-        p.append("hide empty members\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("architecture-class-diagram.puml")))) {
+            pw.println("@startuml");
+            pw.println("title Class Architecture (Controller-Service-Repository)");
+            pw.println("skinparam packageStyle rectangle");
+            pw.println("hide empty members");
 
-        for (Map.Entry<String, List<ArchitectureInfo>> layerEntry : byLayer.entrySet()) {
-            String layer = layerEntry.getKey();
-            p.append("package \"").append(capitalize(layer)).append("\" {\n");
-            for (ArchitectureInfo info : layerEntry.getValue()) {
-                p.append("  class ").append(toId(info.className()))
-                        .append(" as \"").append(simpleName(info.className())).append("\"\n");
+            for (Map.Entry<String, List<ArchitectureInfo>> layerEntry : byLayer.entrySet()) {
+                String layer = layerEntry.getKey();
+                pw.println("package \"" + capitalize(layer) + "\" {");
+                layerEntry.getValue().forEach(info -> {
+                    pw.println("  class " + toId(info.className()) + " as \"" + simpleName(info.className()) + "\"");
+                });
+                pw.println("}");
             }
-            p.append("}\n");
-        }
 
-        // Provide readable architectural flow, even if concrete type dependencies
-        // are not extracted from bytecode yet.
-        if (byLayer.containsKey("controller") && byLayer.containsKey("service")) {
-            p.append("Controller ..> Service : uses\n");
-        }
-        if (byLayer.containsKey("service") && byLayer.containsKey("repository")) {
-            p.append("Service ..> Repository : uses\n");
-        }
-        if (byLayer.containsKey("service") && byLayer.containsKey("domain")) {
-            p.append("Service ..> Domain : manipulates\n");
-        }
-        if (byLayer.containsKey("controller") && byLayer.containsKey("application")) {
-            p.append("Controller ..> Application : orchestrates\n");
-        }
-        if (byLayer.containsKey("application") && byLayer.containsKey("infrastructure")) {
-            p.append("Application ..> Infrastructure : delegates\n");
-        }
+            // Provide readable architectural flow, even if concrete type dependencies
+            // are not extracted from bytecode yet.
+            if (byLayer.containsKey("controller") && byLayer.containsKey("service")) {
+                pw.println("Controller ..> Service : uses");
+            }
+            if (byLayer.containsKey("service") && byLayer.containsKey("repository")) {
+                pw.println("Service ..> Repository : uses");
+            }
+            if (byLayer.containsKey("service") && byLayer.containsKey("domain")) {
+                pw.println("Service ..> Domain : manipulates");
+            }
+            if (byLayer.containsKey("controller") && byLayer.containsKey("application")) {
+                pw.println("Controller ..> Application : orchestrates");
+            }
+            if (byLayer.containsKey("application") && byLayer.containsKey("infrastructure")) {
+                pw.println("Application ..> Infrastructure : delegates");
+            }
 
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("architecture-class-diagram.puml"), p.toString());
+            pw.println("@enduml");
+        }
     }
 
     private void writeArchitectureFlowDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {
         if (infos.isEmpty()) return;
         Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(infos);
 
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\n");
-        p.append("title Architecture Flow (Layered)\n");
-        p.append("left to right direction\n");
-        appendLayerNode(p, byLayer, "controller", "Controller");
-        appendLayerNode(p, byLayer, "service", "Service");
-        appendLayerNode(p, byLayer, "repository", "Repository");
-        appendLayerNode(p, byLayer, "domain", "Domain");
-        appendLayerNode(p, byLayer, "application", "Application");
-        appendLayerNode(p, byLayer, "infrastructure", "Infrastructure");
-        appendLayerFlowEdges(p, byLayer);
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("architecture-flow.puml"), p.toString());
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("architecture-flow.puml")))) {
+            pw.println("@startuml");
+            pw.println("title Architecture Flow (Layered)");
+            pw.println("left to right direction");
+            appendLayerNode(pw, byLayer, "controller", "Controller");
+            appendLayerNode(pw, byLayer, "service", "Service");
+            appendLayerNode(pw, byLayer, "repository", "Repository");
+            appendLayerNode(pw, byLayer, "domain", "Domain");
+            appendLayerNode(pw, byLayer, "application", "Application");
+            appendLayerNode(pw, byLayer, "infrastructure", "Infrastructure");
+            appendLayerFlowEdges(pw, byLayer);
+            pw.println("@enduml");
+        }
     }
 
     private void writeEntityRelationshipDiagram(Path outputDir, List<EntityRelation> relations) throws IOException {
         if (relations == null || relations.isEmpty()) return;
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\n");
-        p.append("title Entity Relationship Diagram\n");
-        p.append("hide empty members\n");
-        Map<String, String> entities = new LinkedHashMap<>();
-        for (EntityRelation relation : relations) {
-            entities.putIfAbsent(relation.fromEntity(), simpleName(relation.fromEntity()));
-            entities.putIfAbsent(relation.toEntity(), simpleName(relation.toEntity()));
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("entity-relationship.puml")))) {
+            pw.println("@startuml");
+            pw.println("title Entity Relationship Diagram");
+            pw.println("hide empty members");
+
+            relations.stream()
+                    .flatMap(r -> Stream.of(r.fromEntity(), r.toEntity()))
+                    .distinct()
+                    .forEach(e -> pw.println("class " + toId(e) + " as \"" + simpleName(e) + "\" <<Entity>>"));
+
+            relations.stream()
+                    .forEach(r -> pw.println(toId(r.fromEntity()) + " " + relationArrow(r.relationType()) + " " + toId(r.toEntity()) + " : " + r.relationType()));
+
+            pw.println("@enduml");
         }
-        for (Map.Entry<String, String> e : entities.entrySet()) {
-            p.append("class ").append(toId(e.getKey())).append(" as \"").append(e.getValue()).append("\" <<Entity>>\n");
-        }
-        for (EntityRelation relation : relations) {
-            String arrow = relationArrow(relation.relationType());
-            p.append(toId(relation.fromEntity())).append(" ").append(arrow).append(" ").append(toId(relation.toEntity()))
-                    .append(" : ").append(relation.relationType()).append("\n");
-        }
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("entity-relationship.puml"), p.toString());
     }
 
     private void writeDeploymentDiagram(Path outputDir,
@@ -170,32 +166,32 @@ public final class PlantUmlOutput implements DiagramOutput {
         boolean hasMessaging = messagingFlows != null && !messagingFlows.isEmpty();
         if (!hasApi && !hasDb && !hasMessaging) return;
 
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\n");
-        p.append("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Deployment.puml\n");
-        p.append("title Runtime Deployment View\n");
-        p.append("Deployment_Node(browser, \"Client\", \"Web browser\") {\n");
-        p.append("}\n");
-        p.append("Deployment_Node(platform, \"Runtime Platform\", \"JVM / Spring Boot\") {\n");
-        p.append("  Container(app, \"Application\", \"Spring Boot\")\n");
-        p.append("}\n");
-        if (hasApi) {
-            p.append("Rel(browser, app, \"HTTP\")\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("deployment-diagram.puml")))) {
+            pw.println("@startuml");
+            pw.println("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Deployment.puml");
+            pw.println("title Runtime Deployment View");
+            pw.println("Deployment_Node(browser, \"Client\", \"Web browser\") {");
+            pw.println("}");
+            pw.println("Deployment_Node(platform, \"Runtime Platform\", \"JVM / Spring Boot\") {");
+            pw.println("  Container(app, \"Application\", \"Spring Boot\")");
+            pw.println("}");
+            if (hasApi) {
+                pw.println("Rel(browser, app, \"HTTP\")");
+            }
+            if (hasDb) {
+                pw.println("Deployment_Node(dbnode, \"Database Node\", \"Relational DB\") {");
+                pw.println("  ContainerDb(db, \"Application Database\", \"SQL\")");
+                pw.println("}");
+                pw.println("Rel(app, db, \"JPA / SQL\")");
+            }
+            if (hasMessaging) {
+                pw.println("Deployment_Node(msgnode, \"Messaging\", \"Broker\") {");
+                pw.println("  ContainerQueue(broker, \"Message Broker\", \"Kafka/JMS\")");
+                pw.println("}");
+                pw.println("Rel(app, broker, \"Publish/Consume\")");
+            }
+            pw.println("@enduml");
         }
-        if (hasDb) {
-            p.append("Deployment_Node(dbnode, \"Database Node\", \"Relational DB\") {\n");
-            p.append("  ContainerDb(db, \"Application Database\", \"SQL\")\n");
-            p.append("}\n");
-            p.append("Rel(app, db, \"JPA / SQL\")\n");
-        }
-        if (hasMessaging) {
-            p.append("Deployment_Node(msgnode, \"Messaging\", \"Broker\") {\n");
-            p.append("  ContainerQueue(broker, \"Message Broker\", \"Kafka/JMS\")\n");
-            p.append("}\n");
-            p.append("Rel(app, broker, \"Publish/Consume\")\n");
-        }
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("deployment-diagram.puml"), p.toString());
     }
 
     private void writeDataLineageDiagram(Path outputDir,
@@ -231,58 +227,58 @@ public final class PlantUmlOutput implements DiagramOutput {
             }
         }
 
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\n");
-        p.append("title Data Lineage (Endpoint -> Entities)\n");
-        p.append("actor Client\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("data-lineage-diagram.puml")))) {
+            pw.println("@startuml");
+            pw.println("title Data Lineage (Endpoint -> Entities)");
+            pw.println("actor Client");
 
-        // Keep node declarations unique to avoid overly large diagrams.
-        java.util.Set<String> declaredNodes = new java.util.LinkedHashSet<>();
-        for (EndpointFlow endpoint : endpointFlows) {
-            String endpointId = "ep_" + toId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod());
-            String controllerId = toId(endpoint.controllerClass());
+            // Keep node declarations unique to avoid overly large diagrams.
+            java.util.Set<String> declaredNodes = new java.util.LinkedHashSet<>();
+            for (EndpointFlow endpoint : endpointFlows) {
+                String endpointId = "ep_" + toId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod());
+                String controllerId = toId(endpoint.controllerClass());
 
-            String serviceClass = firstDependencyTarget(endpoint.controllerClass(), services, safeDeps);
-            String repositoryClass = serviceClass == null ? null : firstDependencyTarget(serviceClass, repositories, safeDeps);
+                String serviceClass = firstDependencyTarget(endpoint.controllerClass(), services, safeDeps);
+                String repositoryClass = serviceClass == null ? null : firstDependencyTarget(serviceClass, repositories, safeDeps);
 
-            p.append("rectangle \"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\" as ").append(endpointId).append("\n");
+                pw.println("rectangle \"" + endpoint.httpMethod() + " " + endpoint.path() + "\" as " + endpointId);
 
-            if (declaredNodes.add(controllerId)) {
-                p.append("component \"").append(simpleName(endpoint.controllerClass())).append("\" as ").append(controllerId).append("\n");
-            }
-            p.append("Client --> ").append(endpointId).append("\n");
-            p.append(endpointId).append(" --> ").append(controllerId).append("\n");
-
-            if (serviceClass != null) {
-                String serviceId = toId(serviceClass);
-                if (declaredNodes.add(serviceId)) {
-                    p.append("component \"").append(simpleName(serviceClass)).append("\" as ").append(serviceId).append("\n");
+                if (declaredNodes.add(controllerId)) {
+                    pw.println("component \"" + simpleName(endpoint.controllerClass()) + "\" as " + controllerId);
                 }
-                p.append(controllerId).append(" --> ").append(serviceId).append("\n");
+                pw.println("Client --> " + endpointId);
+                pw.println(endpointId + " --> " + controllerId);
 
-                if (repositoryClass != null) {
-                    String repoId = toId(repositoryClass);
-                    if (declaredNodes.add(repoId)) {
-                        p.append("component \"").append(simpleName(repositoryClass)).append("\" as ").append(repoId).append("\n");
+                if (serviceClass != null) {
+                    String serviceId = toId(serviceClass);
+                    if (declaredNodes.add(serviceId)) {
+                        pw.println("component \"" + simpleName(serviceClass) + "\" as " + serviceId);
                     }
-                    p.append(serviceId).append(" --> ").append(repoId).append("\n");
+                    pw.println(controllerId + " --> " + serviceId);
 
-                    // Link repository to discovered entities (heuristic via bytecode dependency).
-                    List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
-                    if (!entities.isEmpty()) {
-                        for (String entity : entities) {
-                            String entityId = toId(entity);
-                            if (declaredNodes.add(entityId)) {
-                                p.append("class ").append(entityId).append(" as \"").append(simpleName(entity)).append("\" <<Entity>>\n");
+                    if (repositoryClass != null) {
+                        String repoId = toId(repositoryClass);
+                        if (declaredNodes.add(repoId)) {
+                            pw.println("component \"" + simpleName(repositoryClass) + "\" as " + repoId);
+                        }
+                        pw.println(serviceId + " --> " + repoId);
+
+                        // Link repository to discovered entities (heuristic via bytecode dependency).
+                        List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
+                        if (!entities.isEmpty()) {
+                            for (String entity : entities) {
+                                String entityId = toId(entity);
+                                if (declaredNodes.add(entityId)) {
+                                    pw.println("class " + entityId + " as \"" + simpleName(entity) + "\" <<Entity>>");
+                                }
+                                pw.println(repoId + " --> " + entityId + " : query/persist");
                             }
-                            p.append(repoId).append(" --> ").append(entityId).append(" : query/persist\n");
                         }
                     }
                 }
             }
+            pw.println("@enduml");
         }
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("data-lineage-diagram.puml"), p.toString());
     }
 
     private void writeEndpointDataLineageDiagram(Path outputDir,
@@ -324,45 +320,44 @@ public final class PlantUmlOutput implements DiagramOutput {
             String serviceId = serviceClass != null ? toId(serviceClass) : null;
             String repoId = repositoryClass != null ? toId(repositoryClass) : null;
 
-            StringBuilder p = new StringBuilder();
-            p.append("@startuml\n");
-            p.append("title Endpoint Data Lineage - ").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\n");
-            p.append("hide empty members\n");
+            String sequenceFileName = "endpoint-data-lineage-" + toId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod()) + ".puml";
+            try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve(sequenceFileName)))) {
+                pw.println("@startuml");
+                pw.println("title Endpoint Data Lineage - " + endpoint.httpMethod() + " " + endpoint.path());
+                pw.println("hide empty members");
 
-            p.append("actor Client\n");
-            p.append("rectangle \"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\" as ").append(endpointId).append("\n");
-            p.append("component \"").append(simpleName(controllerClass)).append("\" as ").append(controllerId).append("\n");
-            p.append("Client --> ").append(endpointId).append("\n");
-            p.append(endpointId).append(" --> ").append(controllerId).append("\n");
+                pw.println("actor Client");
+                pw.println("rectangle \"" + endpoint.httpMethod() + " " + endpoint.path() + "\" as " + endpointId);
+                pw.println("component \"" + simpleName(controllerClass) + "\" as " + controllerId);
+                pw.println("Client --> " + endpointId);
+                pw.println(endpointId + " --> " + controllerId);
 
-            if (serviceClass != null) {
-                p.append("component \"").append(simpleName(serviceClass)).append("\" as ").append(serviceId).append("\n");
-                p.append(controllerId).append(" --> ").append(serviceId).append("\n");
-            }
-            if (repositoryClass != null) {
-                p.append("component \"").append(simpleName(repositoryClass)).append("\" as ").append(repoId).append("\n");
-                p.append((serviceId != null ? serviceId : controllerId)).append(" --> ").append(repoId).append("\n");
+                if (serviceClass != null) {
+                    pw.println("component \"" + simpleName(serviceClass) + "\" as " + serviceId);
+                    pw.println(controllerId + " --> " + serviceId);
+                }
+                if (repositoryClass != null) {
+                    pw.println("component \"" + simpleName(repositoryClass) + "\" as " + repoId);
+                    pw.println((serviceId != null ? serviceId : controllerId) + " --> " + repoId);
 
-                List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
-                if (!entities.isEmpty()) {
-                    for (String entity : entities) {
-                        String entityId = toId(entity);
-                        p.append("class ").append(entityId).append(" as \"").append(simpleName(entity)).append("\" <<Entity>>\n");
-                        p.append(repoId).append(" --> ").append(entityId).append(" : query/persist\n");
+                    List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
+                    if (!entities.isEmpty()) {
+                        for (String entity : entities) {
+                            String entityId = toId(entity);
+                            pw.println("class " + entityId + " as \"" + simpleName(entity) + "\" <<Entity>>");
+                            pw.println(repoId + " --> " + entityId + " : query/persist");
+                        }
+                    } else {
+                        pw.println("note \"No entity lineage discovered\" as noEntity");
+                        pw.println(repoId + " ..> noEntity");
                     }
                 } else {
-                    p.append("note \"No entity lineage discovered\" as noEntity\n");
-                    p.append(repoId).append(" ..> noEntity\n");
+                    pw.println("note \"No repository discovered\" as noRepo");
+                    pw.println(controllerId + " ..> noRepo");
                 }
-            } else {
-                p.append("note \"No repository discovered\" as noRepo\n");
-                p.append(controllerId).append(" ..> noRepo\n");
+
+                pw.println("@enduml");
             }
-
-            p.append("@enduml");
-
-            String sequenceFileName = "endpoint-data-lineage-" + toId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod()) + ".puml";
-            Files.writeString(outputDir.resolve(sequenceFileName), p.toString());
         }
     }
 
@@ -390,21 +385,21 @@ public final class PlantUmlOutput implements DiagramOutput {
         String service = serviceClass != null ? simpleName(serviceClass) : "Service";
         String repository = repositoryClass != null ? simpleName(repositoryClass) : "Repository";
 
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\n");
-        p.append("title Request Sequence (Controller -> Service -> Repository)\n");
-        p.append("actor Client\n");
-        p.append("participant ").append(controller).append("\n");
-        p.append("participant ").append(service).append("\n");
-        p.append("participant ").append(repository).append("\n");
-        p.append("Client -> ").append(controller).append(" : HTTP request\n");
-        p.append(controller).append(" -> ").append(service).append(" : invoke use case\n");
-        p.append(service).append(" -> ").append(repository).append(" : query/persist\n");
-        p.append(repository).append(" --> ").append(service).append(" : data\n");
-        p.append(service).append(" --> ").append(controller).append(" : response model\n");
-        p.append(controller).append(" --> Client : HTTP response\n");
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("architecture-sequence.puml"), p.toString());
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("architecture-sequence.puml")))) {
+            pw.println("@startuml");
+            pw.println("title Request Sequence (Controller -> Service -> Repository)");
+            pw.println("actor Client");
+            pw.println("participant " + controller);
+            pw.println("participant " + service);
+            pw.println("participant " + repository);
+            pw.println("Client -> " + controller + " : HTTP request");
+            pw.println(controller + " -> " + service + " : invoke use case");
+            pw.println(service + " -> " + repository + " : query/persist");
+            pw.println(repository + " --> " + service + " : data");
+            pw.println(service + " --> " + controller + " : response model");
+            pw.println(controller + " --> Client : HTTP response");
+            pw.println("@enduml");
+        }
     }
 
     private void writeComponentDependenciesDiagram(Path outputDir,
@@ -418,22 +413,22 @@ public final class PlantUmlOutput implements DiagramOutput {
             layerByClass.put(info.className(), info.layer());
         }
 
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\n");
-        p.append("title Component Dependencies (from bytecode)\n");
-        p.append("skinparam packageStyle rectangle\n");
-        p.append("hide empty members\n");
-        for (ArchitectureInfo info : infos) {
-            String id = toId(info.className());
-            p.append("class ").append(id).append(" as \"").append(simpleName(info.className())).append("\"\n");
-        }
-        for (ClassDependency dep : classDependencies) {
-            if (fullDependencyMode || isInterestingDependency(layerByClass, dep)) {
-                p.append(toId(dep.fromClass())).append(" --> ").append(toId(dep.toClass())).append("\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("architecture-component-dependencies.puml")))) {
+            pw.println("@startuml");
+            pw.println("title Component Dependencies (from bytecode)");
+            pw.println("skinparam packageStyle rectangle");
+            pw.println("hide empty members");
+            for (ArchitectureInfo info : infos) {
+                String id = toId(info.className());
+                pw.println("class " + id + " as \"" + simpleName(info.className()) + "\"");
             }
+            for (ClassDependency dep : classDependencies) {
+                if (fullDependencyMode || isInterestingDependency(layerByClass, dep)) {
+                    pw.println(toId(dep.fromClass()) + " --> " + toId(dep.toClass()));
+                }
+            }
+            pw.println("@enduml");
         }
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("architecture-component-dependencies.puml"), p.toString());
     }
 
     private static Map<String, List<ArchitectureInfo>> groupByLayer(List<ArchitectureInfo> infos) {
@@ -444,27 +439,27 @@ public final class PlantUmlOutput implements DiagramOutput {
         return byLayer;
     }
 
-    private static void appendLayerNode(StringBuilder p, Map<String, List<ArchitectureInfo>> byLayer, String key, String label) {
+    private static void appendLayerNode(PrintWriter pw, Map<String, List<ArchitectureInfo>> byLayer, String key, String label) {
         List<ArchitectureInfo> infos = byLayer.get(key);
         if (infos == null || infos.isEmpty()) return;
-        p.append("rectangle \"").append(label).append("\\n(").append(infos.size()).append(" classes)\" as ").append(label).append("\n");
+        pw.println("rectangle \"" + label + "\\n(" + infos.size() + " classes)\" as " + label);
     }
 
-    private static void appendLayerFlowEdges(StringBuilder p, Map<String, List<ArchitectureInfo>> byLayer) {
+    private static void appendLayerFlowEdges(PrintWriter pw, Map<String, List<ArchitectureInfo>> byLayer) {
         if (byLayer.containsKey("controller") && byLayer.containsKey("service")) {
-            p.append("Controller --> Service : uses\n");
+            pw.println("Controller --> Service : uses");
         }
         if (byLayer.containsKey("service") && byLayer.containsKey("repository")) {
-            p.append("Service --> Repository : uses\n");
+            pw.println("Service --> Repository : uses");
         }
         if (byLayer.containsKey("service") && byLayer.containsKey("domain")) {
-            p.append("Service --> Domain : manipulates\n");
+            pw.println("Service --> Domain : manipulates");
         }
         if (byLayer.containsKey("controller") && byLayer.containsKey("application")) {
-            p.append("Controller --> Application : orchestrates\n");
+            pw.println("Controller --> Application : orchestrates");
         }
         if (byLayer.containsKey("application") && byLayer.containsKey("infrastructure")) {
-            p.append("Application --> Infrastructure : delegates\n");
+            pw.println("Application --> Infrastructure : delegates");
         }
     }
 
@@ -505,36 +500,36 @@ public final class PlantUmlOutput implements DiagramOutput {
         List<ArchitectureInfo> services = byLayer.getOrDefault("service", List.of());
         List<ArchitectureInfo> repositories = byLayer.getOrDefault("repository", List.of());
 
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\n");
-        p.append("title Endpoint Flow Map\n");
-        p.append("left to right direction\n");
-        p.append("actor Client\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("endpoint-flow.puml")))) {
+            pw.println("@startuml");
+            pw.println("title Endpoint Flow Map");
+            pw.println("left to right direction");
+            pw.println("actor Client");
 
-        for (EndpointFlow endpoint : endpointFlows) {
-            String endpointId = "ep_" + toId(endpoint.httpMethod() + "_" + endpoint.path());
-            String controllerId = toId(endpoint.controllerClass());
-            p.append("usecase \"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\" as ").append(endpointId).append("\n");
-            p.append("component \"").append(simpleName(endpoint.controllerClass())).append("\" as ").append(controllerId).append("\n");
-            p.append("Client --> ").append(endpointId).append("\n");
-            p.append(endpointId).append(" --> ").append(controllerId).append("\n");
+            for (EndpointFlow endpoint : endpointFlows) {
+                String endpointId = "ep_" + toId(endpoint.httpMethod() + "_" + endpoint.path());
+                String controllerId = toId(endpoint.controllerClass());
+                pw.println("usecase \"" + endpoint.httpMethod() + " " + endpoint.path() + "\" as " + endpointId);
+                pw.println("component \"" + simpleName(endpoint.controllerClass()) + "\" as " + controllerId);
+                pw.println("Client --> " + endpointId);
+                pw.println(endpointId + " --> " + controllerId);
 
-            String service = firstDependencyTarget(endpoint.controllerClass(), services, classDependencies);
-            if (service != null) {
-                String serviceId = toId(service);
-                p.append("component \"").append(simpleName(service)).append("\" as ").append(serviceId).append("\n");
-                p.append(controllerId).append(" --> ").append(serviceId).append("\n");
+                String service = firstDependencyTarget(endpoint.controllerClass(), services, classDependencies);
+                if (service != null) {
+                    String serviceId = toId(service);
+                    pw.println("component \"" + simpleName(service) + "\" as " + serviceId);
+                    pw.println(controllerId + " --> " + serviceId);
 
-                String repository = firstDependencyTarget(service, repositories, classDependencies);
-                if (repository != null) {
-                    String repoId = toId(repository);
-                    p.append("component \"").append(simpleName(repository)).append("\" as ").append(repoId).append("\n");
-                    p.append(serviceId).append(" --> ").append(repoId).append("\n");
+                    String repository = firstDependencyTarget(service, repositories, classDependencies);
+                    if (repository != null) {
+                        String repoId = toId(repository);
+                        pw.println("component \"" + simpleName(repository) + "\" as " + repoId);
+                        pw.println(serviceId + " --> " + repoId);
+                    }
                 }
             }
+            pw.println("@enduml");
         }
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("endpoint-flow.puml"), p.toString());
     }
 
     private void writeEndpointSequenceDiagram(Path outputDir,
@@ -553,22 +548,22 @@ public final class PlantUmlOutput implements DiagramOutput {
             String service = serviceClass != null ? simpleName(serviceClass) : "Service";
             String repository = repositoryClass != null ? simpleName(repositoryClass) : "Repository";
 
-            StringBuilder p = new StringBuilder();
-            p.append("@startuml\n");
-            p.append("title Endpoint Sequence - ").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\n");
-            p.append("actor Client\n");
-            p.append("participant ").append(controller).append("\n");
-            p.append("participant ").append(service).append("\n");
-            p.append("participant ").append(repository).append("\n");
-            p.append("Client -> ").append(controller).append(" : ").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\n");
-            p.append(controller).append(" -> ").append(service).append(" : ").append(endpoint.controllerMethod()).append("()\n");
-            p.append(service).append(" -> ").append(repository).append(" : query/persist\n");
-            p.append(repository).append(" --> ").append(service).append(" : data\n");
-            p.append(service).append(" --> ").append(controller).append(" : response model\n");
-            p.append(controller).append(" --> Client : HTTP response\n");
-            p.append("@enduml");
             String sequenceFileName = "endpoint-sequence-" + toId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod()) + ".puml";
-            Files.writeString(outputDir.resolve(sequenceFileName), p.toString());
+            try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve(sequenceFileName)))) {
+                pw.println("@startuml");
+                pw.println("title Endpoint Sequence - " + endpoint.httpMethod() + " " + endpoint.path());
+                pw.println("actor Client");
+                pw.println("participant " + controller);
+                pw.println("participant " + service);
+                pw.println("participant " + repository);
+                pw.println("Client -> " + controller + " : " + endpoint.httpMethod() + " " + endpoint.path());
+                pw.println(controller + " -> " + service + " : " + endpoint.controllerMethod() + "()");
+                pw.println(service + " -> " + repository + " : query/persist");
+                pw.println(repository + " --> " + service + " : data");
+                pw.println(service + " --> " + controller + " : response model");
+                pw.println(controller + " --> Client : HTTP response");
+                pw.println("@enduml");
+            }
         }
     }
 
@@ -603,27 +598,28 @@ public final class PlantUmlOutput implements DiagramOutput {
 
     private void writeMessagingDiagram(Path outputDir, List<MessagingFlow> flows) throws IOException {
         if (flows.isEmpty()) return;
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\n!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Container.puml\n");
-        p.append("Title Messaging Flows\n");
-        for (MessagingFlow flow : flows) {
-            p.append("System_Ext(").append(flow.destination().replaceAll("[^a-zA-Z0-9]", "_")).append(", \"").append(flow.destination()).append("\", \"").append(flow.technology()).append("\")\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("messaging-flows.puml")))) {
+            pw.println("@startuml");
+            pw.println("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Container.puml");
+            pw.println("Title Messaging Flows");
+            for (MessagingFlow flow : flows) {
+                pw.println("System_Ext(" + flow.destination().replaceAll("[^a-zA-Z0-9]", "_") + ", \"" + flow.destination() + "\", \"" + flow.technology() + "\")");
+            }
+            pw.println("@enduml");
         }
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("messaging-flows.puml"), p.toString());
     }
 
     private void writeBpmnDiagram(Path outputDir, List<BpmnFlow> flows) throws IOException {
         if (flows.isEmpty()) return;
-        StringBuilder p = new StringBuilder();
-        p.append("@startuml\nTitle BPMN Flows\n");
-        for (BpmnFlow flow : flows) {
-            p.append("node \"").append(flow.processId()).append("\" {\n");
-            p.append("  [").append(flow.stepName()).append("] <<").append(flow.delegateBean()).append(">>\n");
-            p.append("}\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("bpmn-flows.puml")))) {
+            pw.println("@startuml");
+            pw.println("Title BPMN Flows");
+            for (BpmnFlow flow : flows) {
+                pw.println("node \"" + flow.processId() + "\" {");
+                pw.println("  [" + flow.stepName() + "] <<" + flow.delegateBean() + ">>");
+                pw.println("}");
+            }
+            pw.println("@enduml");
         }
-        p.append("@enduml");
-        Files.writeString(outputDir.resolve("bpmn-flows.puml"), p.toString());
     }
 }
-

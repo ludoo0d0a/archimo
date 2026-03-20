@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.StreamSupport;
 
 public class MessagingScanner {
 
@@ -19,8 +20,8 @@ public class MessagingScanner {
         Map<String, String> publishers = new HashMap<>();
         Map<String, String> technologies = new HashMap<>();
 
-        for (JavaClass clazz : classes) {
-            for (JavaMethod method : clazz.getMethods()) {
+        StreamSupport.stream(classes.spliterator(), false).forEach(clazz -> {
+            clazz.getMethods().forEach(method -> {
                 // Detect Listeners
                 if (method.isAnnotatedWith("org.springframework.kafka.annotation.KafkaListener")) {
                     String topic = extractAnnotationValue(method, "org.springframework.kafka.annotation.KafkaListener", "topics");
@@ -36,7 +37,7 @@ public class MessagingScanner {
                 }
 
                 // Detect Producers (simplified: looking for calls to Templates)
-                for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
+                method.getMethodCallsFromSelf().forEach(call -> {
                     String targetType = call.getTargetOwner().getFullName();
                     if (targetType.equals("org.springframework.kafka.core.KafkaTemplate")) {
                         publishers.put("unknown-kafka-topic", clazz.getSimpleName());
@@ -45,20 +46,18 @@ public class MessagingScanner {
                         publishers.put("unknown-jms-destination", clazz.getSimpleName());
                         technologies.put("unknown-jms-destination", "JMS");
                     }
-                }
-            }
-        }
+                });
+            });
+        });
 
-        List<MessagingFlow> flows = new ArrayList<>();
-        for (String destination : subscribers.keySet()) {
-            flows.add(new MessagingFlow(
-                technologies.get(destination),
-                destination,
-                publishers.getOrDefault(destination, "External / Unknown"),
-                subscribers.get(destination)
-            ));
-        }
-        return flows;
+        return subscribers.keySet().stream()
+                .map(destination -> new MessagingFlow(
+                        technologies.get(destination),
+                        destination,
+                        publishers.getOrDefault(destination, "External / Unknown"),
+                        subscribers.get(destination)
+                ))
+                .toList();
     }
 
     private void addSubscriber(Map<String, List<String>> subscribers, Map<String, String> technologies, String destination, String subscriber, String tech) {

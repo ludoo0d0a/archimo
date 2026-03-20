@@ -11,83 +11,57 @@ import fr.geoking.archimo.extract.model.EntityRelation;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 public class ArchitectureScanner {
 
     public List<ArchitectureInfo> scan(JavaClasses classes) {
-        List<ArchitectureInfo> infos = new ArrayList<>();
-        for (JavaClass clazz : classes) {
-            String layer = identifyLayer(clazz);
-            if (layer != null) {
-                infos.add(new ArchitectureInfo(
-                    clazz.getFullName(),
-                    layer,
-                    inferArchitectureType(clazz)
-                ));
-            }
-        }
-        return infos;
+        return StreamSupport.stream(classes.spliterator(), false)
+                .map(clazz -> {
+                    String layer = identifyLayer(clazz);
+                    return layer != null ? new ArchitectureInfo(clazz.getFullName(), layer, inferArchitectureType(clazz)) : null;
+                })
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     public List<ClassDependency> scanClassDependencies(JavaClasses classes, List<ArchitectureInfo> infos) {
-        Set<String> known = new LinkedHashSet<>();
-        for (ArchitectureInfo info : infos) {
-            known.add(info.className());
-        }
+        Set<String> known = infos.stream()
+                .map(ArchitectureInfo::className)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
-        Set<String> uniqueEdges = new LinkedHashSet<>();
-        List<ClassDependency> dependencies = new ArrayList<>();
-
-        for (JavaClass clazz : classes) {
-            String origin = clazz.getFullName();
-            if (!known.contains(origin)) {
-                continue;
-            }
-            for (Dependency dep : clazz.getDirectDependenciesFromSelf()) {
-                String target = dep.getTargetClass().getFullName();
-                if (origin.equals(target) || !known.contains(target)) {
-                    continue;
-                }
-                String key = origin + "->" + target;
-                if (uniqueEdges.add(key)) {
-                    dependencies.add(new ClassDependency(origin, target));
-                }
-            }
-        }
-        return dependencies;
+        return StreamSupport.stream(classes.spliterator(), false)
+                .filter(clazz -> known.contains(clazz.getFullName()))
+                .flatMap(clazz -> clazz.getDirectDependenciesFromSelf().stream()
+                        .filter(dep -> !clazz.getFullName().equals(dep.getTargetClass().getFullName()) && known.contains(dep.getTargetClass().getFullName()))
+                        .map(dep -> new ClassDependency(clazz.getFullName(), dep.getTargetClass().getFullName())))
+                .distinct()
+                .toList();
     }
 
     public List<EntityRelation> scanEntityRelations(JavaClasses classes) {
-        Set<String> entityTypes = new LinkedHashSet<>();
-        for (JavaClass clazz : classes) {
-            if (isEntity(clazz)) {
-                entityTypes.add(clazz.getFullName());
-            }
-        }
+        Set<String> entityTypes = StreamSupport.stream(classes.spliterator(), false)
+                .filter(this::isEntity)
+                .map(JavaClass::getFullName)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
-        List<EntityRelation> relations = new ArrayList<>();
-        Set<String> unique = new LinkedHashSet<>();
-        for (JavaClass entity : classes) {
-            if (!entityTypes.contains(entity.getFullName())) {
-                continue;
-            }
-            for (JavaField field : entity.getFields()) {
-                String relationType = relationType(field);
-                if (relationType == null) {
-                    continue;
-                }
-                String target = field.getRawType().getFullName();
-                if (!entityTypes.contains(target) || target.equals(entity.getFullName())) {
-                    continue;
-                }
-                String key = entity.getFullName() + "->" + target + ":" + relationType;
-                if (unique.add(key)) {
-                    relations.add(new EntityRelation(entity.getFullName(), target, relationType));
-                }
-            }
-        }
-        return relations;
+        return StreamSupport.stream(classes.spliterator(), false)
+                .filter(entity -> entityTypes.contains(entity.getFullName()))
+                .flatMap(entity -> entity.getFields().stream()
+                        .map(field -> {
+                            String relationType = relationType(field);
+                            String target = field.getRawType().getFullName();
+                            if (relationType != null && entityTypes.contains(target) && !target.equals(entity.getFullName())) {
+                                return new EntityRelation(entity.getFullName(), target, relationType);
+                            }
+                            return null;
+                        })
+                        .filter(Objects::nonNull))
+                .distinct()
+                .toList();
     }
 
     private String identifyLayer(JavaClass clazz) {

@@ -7,8 +7,10 @@ import fr.geoking.archimo.extract.model.ExtractResult;
 import org.springframework.modulith.core.ApplicationModules;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,12 +24,16 @@ import java.util.stream.Collectors;
  */
 public final class ModulithExtractorMain {
 
+    private static Logger logger = new Logger(false, null);
+
     public static void main(String[] args) {
         Config config = Config.parse(args);
         if (config == null) {
             printUsage();
             System.exit(1);
         }
+
+        logger = new Logger(config.verbose, config.logFile);
 
         if (config.githubUrl != null) {
             runGithubMode(config);
@@ -55,31 +61,32 @@ public final class ModulithExtractorMain {
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 try {
                     if (Files.exists(finalTempDir)) {
-                        Files.walk(finalTempDir)
-                                .sorted(Comparator.reverseOrder())
-                                .map(Path::toFile)
-                                .forEach(File::delete);
+                        try (var walk = Files.walk(finalTempDir)) {
+                            walk.sorted(Comparator.reverseOrder())
+                                    .map(Path::toFile)
+                                    .forEach(File::delete);
+                        }
                     }
                 } catch (IOException ignored) {
                 }
             }));
 
-            System.out.println("Cloning " + config.githubUrl + " into " + tempDir + "...");
+            logger.info("Cloning " + config.githubUrl + " into " + tempDir + "...");
 
             ProcessBuilder pb = new ProcessBuilder("git", "clone", "--depth", "1", "--", config.githubUrl, ".");
             pb.directory(tempDir.toFile());
             pb.inheritIO();
             int exit = pb.start().waitFor();
             if (exit != 0) {
-                System.err.println("Git clone failed.");
+                logger.error("Git clone failed.");
                 System.exit(1);
             }
 
-            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.module, config.serve);
+            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.module, config.serve, config.verbose, config.logFile, config.xmx, config.xms, config.xss);
             runProjectMode(newConfig);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Github mode failed", e);
             System.exit(1);
         }
     }
@@ -93,7 +100,7 @@ public final class ModulithExtractorMain {
                 appClass = discoverMainClass(projectDir);
                 if (appClass == null) {
                     // Try monorepo discovery
-                    System.out.println("Main class not found in root. Searching in sub-modules...");
+                    logger.info("Main class not found in root. Searching in sub-modules...");
                     try (var stream = Files.list(projectDir)) {
                         List<Path> subDirs = stream.filter(Files::isDirectory).toList();
                         if (config.module != null) {
@@ -102,7 +109,7 @@ public final class ModulithExtractorMain {
                                 appClass = discoverMainClass(moduleDir);
                                 if (appClass != null) {
                                     projectDir = moduleDir;
-                                    System.out.println("Found in module '" + config.module + "': " + appClass);
+                                    logger.info("Found in module '" + config.module + "': " + appClass);
                                 }
                             }
                         } else {
@@ -111,7 +118,7 @@ public final class ModulithExtractorMain {
                                     appClass = discoverMainClass(subDir);
                                     if (appClass != null) {
                                         projectDir = subDir;
-                                        System.out.println("Auto-discovered in module '" + subDir.getFileName() + "': " + appClass);
+                                        logger.info("Auto-discovered in module '" + subDir.getFileName() + "': " + appClass);
                                         break;
                                     }
                                 }
@@ -120,10 +127,10 @@ public final class ModulithExtractorMain {
                     }
                 }
                 if (appClass == null) {
-                    System.err.println("Could not discover main application class. Use --app-class=fully.qualified.MainClass or --module=<name>");
+                    logger.error("Could not discover main application class. Use --app-class=fully.qualified.MainClass or --module=<name>");
                     System.exit(1);
                 }
-                System.out.println("Discovered application class: " + appClass);
+                logger.info("Discovered application class: " + appClass);
             }
 
             Path target = projectDir.resolve("target");
@@ -131,19 +138,21 @@ public final class ModulithExtractorMain {
             Path dependencyDir = target.resolve("dependency");
 
             if (!java.nio.file.Files.isDirectory(classes) || !java.nio.file.Files.isDirectory(dependencyDir)) {
-                System.err.println("Project not built. Running: mvn compile dependency:copy-dependencies -DincludeScope=compile");
+                logger.info("Project not built. Running: mvn compile dependency:copy-dependencies -DincludeScope=compile");
                 int exit = runMaven(projectDir, "compile", "dependency:copy-dependencies", "-DincludeScope=compile");
                 if (exit != 0) {
-                    System.err.println("Maven build failed.");
+                    logger.error("Maven build failed.");
                     System.exit(1);
                 }
             }
 
-            String depJars = Files.list(dependencyDir)
-                    .filter(p -> p.toString().endsWith(".jar"))
-                    .map(Path::toAbsolutePath)
-                    .map(Path::toString)
-                    .collect(Collectors.joining(java.io.File.pathSeparator));
+            String depJars;
+            try (var list = Files.list(dependencyDir)) {
+                depJars = list.filter(p -> p.toString().endsWith(".jar"))
+                        .map(Path::toAbsolutePath)
+                        .map(Path::toString)
+                        .collect(Collectors.joining(java.io.File.pathSeparator));
+            }
             String cp = classes.toAbsolutePath() + java.io.File.pathSeparator + depJars + java.io.File.pathSeparator + getCurrentJarPath();
 
             outDir = config.outputDir != null ? config.outputDir.toPath() : target.resolve("archimo-docs");
@@ -160,12 +169,21 @@ public final class ModulithExtractorMain {
             if (config.fullDependencyMode) {
                 javaArgs.add("--full-dependency-mode");
             }
+            if (config.verbose) {
+                javaArgs.add("--verbose");
+            }
+            if (config.logFile != null) {
+                javaArgs.add("--log-file=" + config.logFile.getAbsolutePath());
+            }
 
             Path argsFile = Files.createTempFile(target, "archimo-java-args-", ".txt");
             Files.write(argsFile, javaArgs);
 
             List<String> cmd = new ArrayList<>();
             cmd.add(getJavaExecutable());
+            if (config.xmx != null) cmd.add("-Xmx" + config.xmx);
+            if (config.xms != null) cmd.add("-Xms" + config.xms);
+            if (config.xss != null) cmd.add("-Xss" + config.xss);
             cmd.add("@" + argsFile.toAbsolutePath());
 
             ProcessBuilder pb = new ProcessBuilder(cmd);
@@ -177,7 +195,7 @@ public final class ModulithExtractorMain {
             }
             System.exit(exit);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Project mode failed", e);
             System.exit(1);
         }
     }
@@ -282,7 +300,7 @@ public final class ModulithExtractorMain {
                     modules = ApplicationModules.of(app);
                 }
             } catch (Exception e) {
-                System.err.println("Could not initialize Spring Modulith modules (ignoring if not a Modulith project): " + e.getMessage());
+                logger.info("Could not initialize Spring Modulith modules (ignoring if not a Modulith project): " + e.getMessage());
             }
 
             Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("archimo-docs");
@@ -290,18 +308,18 @@ public final class ModulithExtractorMain {
             ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir, config.fullDependencyMode);
             ExtractResult result = extractor.extract();
 
-            System.out.println("Extraction complete. Output: " + outputDir.toAbsolutePath());
-            System.out.println("  - C4/PlantUML: " + outputDir.resolve("*.puml"));
-            System.out.println("  - Module canvases: " + outputDir.resolve("*.adoc"));
-            System.out.println("  - Events map & flows: " + outputDir.resolve("json"));
-            System.out.println("  - Mermaid: " + outputDir.resolve("mermaid"));
+            logger.info("Extraction complete. Output: " + outputDir.toAbsolutePath());
+            logger.info("  - C4/PlantUML: " + outputDir.resolve("*.puml"));
+            logger.info("  - Module canvases: " + outputDir.resolve("*.adoc"));
+            logger.info("  - Events map & flows: " + outputDir.resolve("json"));
+            logger.info("  - Mermaid: " + outputDir.resolve("mermaid"));
 
             writeGitHubSummary(result, outputDir);
             if (config.serve) {
                 startWebServer(outputDir.resolve("site"));
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Extraction failed", e);
             System.exit(1);
         }
     }
@@ -335,15 +353,15 @@ public final class ModulithExtractorMain {
             }
 
             Files.writeString(Path.of(summaryFile), sb.toString(), java.nio.file.StandardOpenOption.APPEND);
-            System.out.println("GitHub Actions summary written.");
+            logger.info("GitHub Actions summary written.");
         } catch (IOException e) {
-            System.err.println("Failed to write GitHub Actions summary: " + e.getMessage());
+            logger.error("Failed to write GitHub Actions summary: " + e.getMessage());
         }
     }
 
     private static void startWebServer(Path siteDir) {
         if (!Files.isDirectory(siteDir)) {
-            System.err.println("Site directory not found: " + siteDir.toAbsolutePath());
+            logger.error("Site directory not found: " + siteDir.toAbsolutePath());
             return;
         }
         try {
@@ -351,15 +369,15 @@ public final class ModulithExtractorMain {
             HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
             server.createContext("/", new StaticFileHandler(siteDir));
             server.setExecutor(null);
-            System.out.println("\nWeb server started at http://localhost:" + port);
-            System.out.println("To run it manually: python3 -m http.server -d " + siteDir.toAbsolutePath() + " " + port);
-            System.out.println("Press Ctrl+C to stop.\n");
+            logger.info("\nWeb server started at http://localhost:" + port);
+            logger.info("To run it manually: python3 -m http.server -d " + siteDir.toAbsolutePath() + " " + port);
+            logger.info("Press Ctrl+C to stop.\n");
             server.start();
 
             // Keep alive
             Thread.currentThread().join();
         } catch (Exception e) {
-            System.err.println("Failed to start web server: " + e.getMessage());
+            logger.error("Failed to start web server: " + e.getMessage());
         }
     }
 
@@ -411,7 +429,7 @@ public final class ModulithExtractorMain {
             Files.createDirectories(workflowDir);
             Path workflowFile = workflowDir.resolve("archimo-scan.yml");
             if (Files.exists(workflowFile)) {
-                System.out.println("Workflow file already exists: " + workflowFile.toAbsolutePath());
+                logger.info("Workflow file already exists: " + workflowFile.toAbsolutePath());
                 return;
             }
 
@@ -468,9 +486,9 @@ public final class ModulithExtractorMain {
                               path: archimo-docs/
                     """;
             Files.writeString(workflowFile, content);
-            System.out.println("Generated GitHub Actions workflow: " + workflowFile.toAbsolutePath());
+            logger.info("Generated GitHub Actions workflow: " + workflowFile.toAbsolutePath());
         } catch (IOException e) {
-            System.err.println("Failed to generate workflow: " + e.getMessage());
+            logger.error("Failed to generate workflow: " + e.getMessage());
             System.exit(1);
         }
     }
@@ -478,14 +496,21 @@ public final class ModulithExtractorMain {
     private static void printUsage() {
         System.err.println("Usage:");
         System.err.println("  Classpath mode (run with project + deps on classpath):");
-        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ModulithExtractorMain --app-class=<fqcn> [--output-dir=<path>]");
-        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ModulithExtractorMain --base-package=<package> [--output-dir=<path>]");
+        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ModulithExtractorMain --app-class=<fqcn> [--output-dir=<path>] [-v]");
+        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ModulithExtractorMain --base-package=<package> [--output-dir=<path>] [-v]");
         System.err.println("  Project mode (builds with Maven then extracts):");
-        System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve]");
+        System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve] [-v] [--xmx=1g]");
         System.err.println("  GitHub mode (clones repo, builds with Maven then extracts):");
-        System.err.println("    java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve]");
+        System.err.println("    java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve] [-v] [--xmx=1g]");
         System.err.println("  Workflow generation:");
         System.err.println("    java -jar archimo-all.jar --generate-workflow");
+        System.err.println("");
+        System.err.println("Options:");
+        System.err.println("  -v, --verbose           Enable verbose logging");
+        System.err.println("  --log-file=<path>       Write logs to specified file");
+        System.err.println("  --xmx=<size>            Set JVM maximum heap size (e.g. 2g)");
+        System.err.println("  --xms=<size>            Set JVM initial heap size");
+        System.err.println("  --xss=<size>            Set JVM thread stack size");
     }
 
     private static final class Config {
@@ -498,8 +523,13 @@ public final class ModulithExtractorMain {
         final boolean fullDependencyMode;
         final String module;
         final boolean serve;
+        final boolean verbose;
+        final java.io.File logFile;
+        final String xmx;
+        final String xms;
+        final String xss;
 
-        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode, String module, boolean serve) {
+        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode, String module, boolean serve, boolean verbose, java.io.File logFile, String xmx, String xms, String xss) {
             this.projectDir = projectDir;
             this.appClass = appClass;
             this.basePackage = basePackage;
@@ -509,6 +539,11 @@ public final class ModulithExtractorMain {
             this.fullDependencyMode = fullDependencyMode;
             this.module = module;
             this.serve = serve;
+            this.verbose = verbose;
+            this.logFile = logFile;
+            this.xmx = xmx;
+            this.xms = xms;
+            this.xss = xss;
         }
 
         static Config parse(String[] args) {
@@ -521,6 +556,11 @@ public final class ModulithExtractorMain {
             boolean fullDependencyMode = false;
             String module = null;
             boolean serve = false;
+            boolean verbose = false;
+            java.io.File logFile = null;
+            String xmx = null;
+            String xms = null;
+            String xss = null;
             for (String a : args) {
                 if (a.startsWith("--project-dir=")) projectDir = new java.io.File(a.substring("--project-dir=".length()));
                 else if (a.startsWith("--app-class=")) appClass = a.substring("--app-class=".length()).trim();
@@ -531,11 +571,60 @@ public final class ModulithExtractorMain {
                 else if (a.equals("--full-dependency-mode")) fullDependencyMode = true;
                 else if (a.startsWith("--module=")) module = a.substring("--module=".length()).trim();
                 else if (a.equals("--serve")) serve = true;
+                else if (a.equals("-v") || a.equals("--verbose")) verbose = true;
+                else if (a.startsWith("--log-file=")) logFile = new java.io.File(a.substring("--log-file=".length()));
+                else if (a.startsWith("--xmx=")) xmx = a.substring("--xmx=".length()).trim();
+                else if (a.startsWith("--xms=")) xms = a.substring("--xms=".length()).trim();
+                else if (a.startsWith("--xss=")) xss = a.substring("--xss=".length()).trim();
             }
             if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow) return null;
             if (projectDir != null && !projectDir.isDirectory()) return null;
-            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, module, serve);
+            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, module, serve, verbose, logFile, xmx, xms, xss);
+        }
+    }
+
+    private static class Logger {
+        private final boolean verbose;
+        private final java.io.File logFile;
+
+        Logger(boolean verbose, java.io.File logFile) {
+            this.verbose = verbose;
+            this.logFile = logFile;
+        }
+
+        void info(String msg) {
+            log("INFO: " + msg);
+        }
+
+        void error(String msg) {
+            System.err.println("ERROR: " + msg);
+            logToDisk("ERROR: " + msg);
+        }
+
+        void error(String msg, Throwable t) {
+            System.err.println("ERROR: " + msg);
+            t.printStackTrace(System.err);
+            logToDisk("ERROR: " + msg);
+            if (logFile != null) {
+                try (PrintWriter pw = new PrintWriter(new FileOutputStream(logFile, true))) {
+                    t.printStackTrace(pw);
+                } catch (IOException ignored) {}
+            }
+        }
+
+        private void log(String msg) {
+            if (verbose) {
+                System.out.println(msg);
+            }
+            logToDisk(msg);
+        }
+
+        private void logToDisk(String msg) {
+            if (logFile != null) {
+                try (PrintWriter pw = new PrintWriter(new FileOutputStream(logFile, true))) {
+                    pw.println(msg);
+                } catch (IOException ignored) {}
+            }
         }
     }
 }
-

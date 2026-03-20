@@ -102,7 +102,7 @@ public final class ArchimoMain {
             logger.info("Project: " + projectDir.toAbsolutePath());
             String appClass = config.appClass;
             if (appClass == null) {
-                appClass = discoverMainClass(projectDir);
+                appClass = MainClassDiscovery.discover(projectDir);
                 if (appClass == null) {
                     // Try monorepo discovery
                     logger.debug("Main class not found in root. Searching in sub-modules...");
@@ -111,7 +111,7 @@ public final class ArchimoMain {
                         if (config.module != null) {
                             Path moduleDir = projectDir.resolve(config.module);
                             if (Files.isDirectory(moduleDir) && Files.exists(moduleDir.resolve("pom.xml"))) {
-                                appClass = discoverMainClass(moduleDir);
+                                appClass = MainClassDiscovery.discover(moduleDir);
                                 if (appClass != null) {
                                     projectDir = moduleDir;
                                     logger.info("Module: " + config.module);
@@ -120,7 +120,7 @@ public final class ArchimoMain {
                         } else {
                             for (Path subDir : subDirs) {
                                 if (Files.exists(subDir.resolve("pom.xml"))) {
-                                    appClass = discoverMainClass(subDir);
+                                    appClass = MainClassDiscovery.discover(subDir);
                                     if (appClass != null) {
                                         projectDir = subDir;
                                         logger.info("Module: " + subDir.getFileName());
@@ -243,65 +243,6 @@ public final class ArchimoMain {
         return windows ? "mvn.cmd" : "mvn";
     }
 
-    private static String discoverMainClass(Path projectDir) {
-        Path pom = projectDir.resolve("pom.xml");
-        if (java.nio.file.Files.isRegularFile(pom)) {
-            try {
-                String content = java.nio.file.Files.readString(pom);
-                if (content.contains("spring-boot-maven-plugin")) {
-                    String mainClass = extractTagValue(content, "<mainClass>", "</mainClass>");
-                    if (mainClass != null && !mainClass.isBlank()) {
-                        return mainClass.trim();
-                    }
-                    String startClass = extractTagValue(content, "<start-class>", "</start-class>");
-                    if (startClass != null && !startClass.isBlank()) {
-                        return startClass.trim();
-                    }
-                }
-            } catch (IOException ignored) {
-            }
-        }
-        return findMainClassInSources(projectDir);
-    }
-
-    private static String findMainClassInSources(Path projectDir) {
-        Path src = projectDir.resolve("src/main/java");
-        if (!Files.isDirectory(src)) return null;
-        try (var walk = Files.walk(src)) {
-            List<Path> candidates = walk
-                    .filter(p -> p.toString().endsWith(".java"))
-                    .toList();
-
-            for (Path p : candidates) {
-                String content = Files.readString(p);
-                if (content.contains("@SpringBootApplication") ||
-                    content.contains("implements ApplicationRunner") ||
-                    content.contains("implements CommandLineRunner")) {
-                    return extractFullClassName(p, src);
-                }
-            }
-        } catch (IOException ignored) {
-        }
-        return null;
-    }
-
-    private static String extractFullClassName(Path javaFile, Path srcDir) {
-        String relative = srcDir.relativize(javaFile).toString().replace(File.separatorChar, '.');
-        if (relative.endsWith(".java")) {
-            return relative.substring(0, relative.length() - ".java".length());
-        }
-        return relative;
-    }
-
-    private static String extractTagValue(String content, String openTag, String closeTag) {
-        int start = content.indexOf(openTag);
-        if (start < 0) return null;
-        start += openTag.length();
-        int end = content.indexOf(closeTag, start);
-        if (end <= start) return null;
-        return content.substring(start, end);
-    }
-
     private static void runExtraction(Config config) {
         try {
             ApplicationModules modules = null;
@@ -318,7 +259,8 @@ public final class ArchimoMain {
 
             Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("archimo-docs");
             Path projectDir = config.projectDir != null ? config.projectDir.toPath() : null;
-            ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir, config.fullDependencyMode, config.messagingScanConcurrency);
+            ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir, config.fullDependencyMode,
+                    config.messagingScanConcurrency, config.appClass);
             ExtractResult result = extractor.extract();
 
             logger.info("Extraction complete. Output: " + outputDir.toAbsolutePath());

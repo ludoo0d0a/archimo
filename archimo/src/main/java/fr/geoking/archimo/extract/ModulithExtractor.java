@@ -22,6 +22,7 @@ import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.ExternalHttpClient;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 import fr.geoking.archimo.extract.model.OpenApiSpecFile;
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.springframework.modulith.core.EventType;
@@ -55,27 +56,37 @@ public final class ModulithExtractor {
     private final Path projectDir;
     private final boolean fullDependencyMode;
     private final MessagingScanConcurrency messagingScanConcurrency;
+    /** Optional FQCN from CLI/tests; otherwise resolved from bytecode or project layout. */
+    private final String applicationMainClassOverride;
     private final ObjectMapper objectMapper;
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir) {
-        this(modules, outputDir, null, false, MessagingScanConcurrency.AUTO);
+        this(modules, outputDir, null, false, MessagingScanConcurrency.AUTO, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir) {
-        this(modules, outputDir, projectDir, false, MessagingScanConcurrency.AUTO);
+        this(modules, outputDir, projectDir, false, MessagingScanConcurrency.AUTO, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode) {
-        this(modules, outputDir, projectDir, fullDependencyMode, MessagingScanConcurrency.AUTO);
+        this(modules, outputDir, projectDir, fullDependencyMode, MessagingScanConcurrency.AUTO, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode,
                              MessagingScanConcurrency messagingScanConcurrency) {
+        this(modules, outputDir, projectDir, fullDependencyMode, messagingScanConcurrency, null);
+    }
+
+    public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode,
+                             MessagingScanConcurrency messagingScanConcurrency, String applicationMainClassOverride) {
         this.modules = modules;
         this.outputDir = Objects.requireNonNull(outputDir);
         this.projectDir = projectDir;
         this.fullDependencyMode = fullDependencyMode;
         this.messagingScanConcurrency = messagingScanConcurrency != null ? messagingScanConcurrency : MessagingScanConcurrency.AUTO;
+        this.applicationMainClassOverride = applicationMainClassOverride != null && !applicationMainClassOverride.isBlank()
+                ? applicationMainClassOverride.trim()
+                : null;
         this.objectMapper = new ObjectMapper()
                 .enable(SerializationFeature.INDENT_OUTPUT);
     }
@@ -105,20 +116,21 @@ public final class ModulithExtractor {
         final List<MessagingFlow> messagingFlows;
         final List<ExternalHttpClient> externalHttpClients;
         final int classesParsedCount;
+        JavaClasses importedClasses = null;
 
         if (projectDir != null) {
             Path classesPath = findClassesPath(projectDir);
             if (classesPath != null && Files.isDirectory(classesPath)) {
-                JavaClasses classes = new ClassFileImporter().importPath(classesPath);
-                classesParsedCount = classes.size();
+                importedClasses = new ClassFileImporter().importPath(classesPath);
+                classesParsedCount = importedClasses.size();
 
                 ArchitectureScanner architectureScanner = new ArchitectureScanner();
-                architectureInfos = architectureScanner.scan(classes);
-                entityRelations = architectureScanner.scanEntityRelations(classes);
-                endpointFlows = new EndpointScanner().scan(classes);
-                messagingFlows = new MessagingScanner().scan(classes, messagingScanConcurrency);
-                externalHttpClients = new ExternalHttpClientScanner().scan(classes);
-                classDependencies = architectureScanner.scanClassDependencies(classes, architectureInfos);
+                architectureInfos = architectureScanner.scan(importedClasses);
+                entityRelations = architectureScanner.scanEntityRelations(importedClasses);
+                endpointFlows = new EndpointScanner().scan(importedClasses);
+                messagingFlows = new MessagingScanner().scan(importedClasses, messagingScanConcurrency);
+                externalHttpClients = new ExternalHttpClientScanner().scan(importedClasses);
+                classDependencies = architectureScanner.scanClassDependencies(importedClasses, architectureInfos);
             } else {
                 architectureInfos = List.of();
                 classDependencies = List.of();
@@ -144,10 +156,12 @@ public final class ModulithExtractor {
 
         System.out.println("Parsed " + classesParsedCount + " classes and " + bpmnFilesParsed + " BPMN files.");
 
+        String applicationMainClass = resolveApplicationMainClass(importedClasses, applicationMainClassOverride, projectDir);
+
         ExtractResult result = new ExtractResult(
                 eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,
                 endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos,
-                openApiSpecFiles, externalHttpClients, fullDependencyMode
+                openApiSpecFiles, externalHttpClients, applicationMainClass, fullDependencyMode
         );
 
         // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
@@ -672,6 +686,29 @@ public final class ModulithExtractor {
                 }
             }
         } catch (Exception ignored) { }
+        return null;
+    }
+
+    private static String resolveApplicationMainClass(JavaClasses classes, String override, Path projectDir) {
+        if (override != null) {
+            return override;
+        }
+        if (classes != null) {
+            List<String> bootApps = StreamSupport.stream(classes.spliterator(), false)
+                    .filter(c -> c.isAnnotatedWith("org.springframework.boot.autoconfigure.SpringBootApplication"))
+                    .map(JavaClass::getFullName)
+                    .sorted()
+                    .toList();
+            if (!bootApps.isEmpty()) {
+                return bootApps.get(0);
+            }
+        }
+        if (projectDir != null) {
+            String fromLayout = MainClassDiscovery.discover(projectDir);
+            if (fromLayout != null) {
+                return fromLayout;
+            }
+        }
         return null;
     }
 

@@ -11,6 +11,7 @@ import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
+import fr.geoking.archimo.extract.model.ExternalHttpClient;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 
 import java.io.IOException;
@@ -19,8 +20,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -44,6 +47,7 @@ public final class PlantUmlOutput implements DiagramOutput {
                     .writeModuleCanvases();
         }
 
+        writeSystemContextDiagram(outputDir, result);
         writeArchitectureDiagram(outputDir, result.architectureInfos());
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
         writeEntityRelationshipDiagram(outputDir, result.entityRelations());
@@ -61,6 +65,110 @@ public final class PlantUmlOutput implements DiagramOutput {
         }
         writeMessagingDiagram(outputDir, result.messagingFlows());
         writeBpmnDiagram(outputDir, result.bpmnFlows());
+    }
+
+    /**
+     * C4 Level 1 — system context: this application (main class when known) plus external systems
+     * inferred from outbound HTTP clients and messaging destinations.
+     */
+    private void writeSystemContextDiagram(Path outputDir, ExtractResult result) throws IOException {
+        String mainFqcn = result.applicationMainClass();
+        List<ArchitectureInfo> infos = result.architectureInfos() == null ? List.of() : result.architectureInfos();
+        List<EndpointFlow> endpoints = result.endpointFlows() == null ? List.of() : result.endpointFlows();
+        List<ExternalHttpClient> httpClients = result.externalHttpClients() == null ? List.of() : result.externalHttpClients();
+        List<MessagingFlow> messaging = result.messagingFlows() == null ? List.of() : result.messagingFlows();
+
+        boolean hasInboundHttp = !endpoints.isEmpty() || containsLayer(infos, "controller");
+        if (mainFqcn == null && !hasInboundHttp && httpClients.isEmpty() && messaging.isEmpty() && infos.isEmpty()) {
+            return;
+        }
+
+        String appTitle = mainFqcn != null ? simpleName(mainFqcn) : "Application";
+        String appTech = mainFqcn != null ? ("Spring Boot\\n" + c4Escape(mainFqcn)) : "Java application";
+
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("system-context.puml")))) {
+            pw.println("@startuml");
+            pw.println("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Context.puml");
+            pw.println("LAYOUT_WITH_LEGEND()");
+            pw.println("title System Context");
+
+            if (hasInboundHttp) {
+                pw.println("Person_Ext(user, \"User\", \"Uses HTTP API\")");
+            }
+
+            pw.println("System(app, \"" + c4Escape(appTitle) + "\", \"" + appTech + "\")");
+
+            if (hasInboundHttp) {
+                pw.println("Rel(user, app, \"HTTPS\")");
+            }
+
+            List<String> httpLabels = new ArrayList<>();
+            Set<String> seenHttp = new LinkedHashSet<>();
+            for (ExternalHttpClient c : httpClients) {
+                String label = externalHttpSystemLabel(c);
+                String norm = label.toLowerCase();
+                if (seenHttp.add(norm)) {
+                    httpLabels.add(label);
+                }
+            }
+            for (int i = 0; i < httpLabels.size(); i++) {
+                String id = "extHttp_" + i;
+                pw.println("System_Ext(" + id + ", \"" + c4Escape(httpLabels.get(i)) + "\", \"Remote HTTP API\")");
+                pw.println("Rel(app, " + id + ", \"HTTP client\")");
+            }
+
+            Set<String> seenMessaging = new LinkedHashSet<>();
+            int msgIdx = 0;
+            for (MessagingFlow f : messaging) {
+                String dest = f.destination() != null ? f.destination() : "";
+                String tech = f.technology() != null ? f.technology() : "";
+                String key = tech + "|" + dest;
+                if (!seenMessaging.add(key)) {
+                    continue;
+                }
+                String title = !dest.isBlank() ? dest : "Messaging";
+                String techLabel = !tech.isBlank() ? tech : "Broker";
+                String id = "extMsg_" + msgIdx++;
+                pw.println("System_Ext(" + id + ", \"" + c4Escape(title) + "\", \"" + c4Escape(techLabel) + "\")");
+                pw.println("Rel(app, " + id + ", \"Messaging\")");
+            }
+
+            pw.println("@enduml");
+        }
+    }
+
+    private static String externalHttpSystemLabel(ExternalHttpClient c) {
+        String d = c.detail();
+        if (d != null && !d.isBlank()) {
+            if (d.startsWith("url=")) {
+                return truncateLabel(d.substring(4).trim(), 96);
+            }
+            if (d.startsWith("name=")) {
+                String rest = d.substring(5).trim();
+                int comma = rest.indexOf(',');
+                String name = comma > 0 ? rest.substring(0, comma).trim() : rest;
+                return !name.isEmpty() ? name : truncateLabel(d, 96);
+            }
+            if (d.startsWith("serviceId=")) {
+                return truncateLabel(d.substring(10).trim(), 96);
+            }
+            return truncateLabel(d, 96);
+        }
+        return c.clientKind() + ": " + simpleName(c.declaringClass());
+    }
+
+    private static String truncateLabel(String s, int max) {
+        if (s.length() <= max) {
+            return s;
+        }
+        return s.substring(0, max - 3) + "...";
+    }
+
+    private static String c4Escape(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("\\", "\\\\").replace("\"", "'");
     }
 
     private void writeArchitectureDiagram(Path outputDir, List<ArchitectureInfo> infos) throws IOException {

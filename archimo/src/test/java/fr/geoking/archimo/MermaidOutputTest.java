@@ -46,6 +46,7 @@ class MermaidOutputTest {
                 List.of(),   // architectureInfos
                 List.of(),   // openApiSpecFiles
                 List.of(),   // externalHttpClients
+                null,        // applicationMainClass
                 false        // fullDependencyMode
         );
 
@@ -89,6 +90,7 @@ class MermaidOutputTest {
                 ),
                 List.of(),
                 List.of(),
+                "com.example.petclinic.PetclinicApplication",
                 false
         );
 
@@ -165,6 +167,7 @@ class MermaidOutputTest {
                 ),
                 List.of(),
                 List.of(),
+                null,
                 true
         );
 

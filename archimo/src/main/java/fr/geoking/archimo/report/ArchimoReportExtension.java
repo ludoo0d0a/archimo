@@ -32,7 +32,7 @@ public final class ArchimoReportExtension implements AfterAllCallback {
         Path outputDir = resolveOutputDir();
         ApplicationModules modules = ApplicationModules.of(mainClass);
         MessagingScanConcurrency messagingScan = MessagingScanConcurrency.parseCli(System.getProperty(PROP_MESSAGING_SCAN_CONCURRENCY));
-        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, null, false, messagingScan);
+        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, null, false, messagingScan, mainClass.getName());
         extractor.extract();
     }
 

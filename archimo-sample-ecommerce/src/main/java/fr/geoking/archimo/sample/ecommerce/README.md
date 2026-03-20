@@ -44,6 +44,10 @@ Nested modules are only visible to their parent and siblings; other top-level mo
 
 Cross-module events are between different top-level modules; internal events are published and consumed within the same module.
 
+## Kubernetes sample
+
+Under **`k8s/`**: illustrative manifests (MariaDB, Redis, Kafka + ZooKeeper, NGINX front, Spring Cloud Gateway, app `Deployment`, Ingress, ConfigMap/Secret for AWS S3, Google OAuth/GCP WI, Stripe, Visa, Mailchimp). See `k8s/README.md` and build the app image with the repo-root **`Dockerfile`**.
+
 ## Running extraction
 
 From the Archimo project root (with this sample on the classpath):

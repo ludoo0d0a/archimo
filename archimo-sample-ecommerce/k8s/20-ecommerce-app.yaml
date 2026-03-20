@@ -1,0 +1,78 @@
+# Spring Boot sample app — build image with ../Dockerfile (tag: archimo-sample-ecommerce:local).
+# Workload Identity: replace PROJECT_ID and service account email for GKE.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ecommerce-app
+  namespace: ecommerce-sample
+  labels:
+    app: ecommerce-app
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: ecommerce-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecommerce-app
+  namespace: ecommerce-sample
+  labels:
+    app: ecommerce-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ecommerce-app
+  template:
+    metadata:
+      labels:
+        app: ecommerce-app
+      annotations:
+        iam.gke.io/gcp-service-account: ecommerce-workload@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com
+    spec:
+      containers:
+        - name: app
+          image: archimo-sample-ecommerce:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_CONFIG_ADDITIONAL_LOCATION
+              value: optional:file:/config/spring/application.properties
+            - name: GCP_PROJECT_ID
+              value: YOUR_GCP_PROJECT_ID
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /var/secrets/gcp/key.json
+            - name: GOOGLE_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: GOOGLE_OAUTH_CLIENT_ID
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ecommerce-secrets
+                  key: DATABASE_PASSWORD
+          volumeMounts:
+            - name: spring-config
+              mountPath: /config/spring
+              readOnly: true
+            - name: gcp-creds
+              mountPath: /var/secrets/gcp
+              readOnly: true
+      volumes:
+        - name: spring-config
+          configMap:
+            name: ecommerce-integration-env
+            items:
+              - key: application.properties
+                path: application.properties
+        - name: gcp-creds
+          secret:
+            secretName: ecommerce-secrets
+            items:
+              - key: GCP_SA_JSON
+                path: key.json

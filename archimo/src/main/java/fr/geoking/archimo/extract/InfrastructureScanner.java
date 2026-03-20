@@ -622,7 +622,8 @@ public final class InfrastructureScanner {
             addHint("REVERSE_PROXY", "Envoy proxy", "image: " + image, rel);
         } else if (imgLower.contains("kong")) {
             addHint("HTTP_GATEWAY", "Kong", "image: " + image, rel);
-        } else if (imgLower.contains("spring-cloud-gateway")) {
+        } else if (imgLower.contains("spring-cloud-gateway")
+                || imgLower.contains("springcloud/spring-cloud-gateway")) {
             addHint("HTTP_GATEWAY", "Spring Cloud Gateway", "image: " + image, rel);
         }
 
@@ -658,8 +659,14 @@ public final class InfrastructureScanner {
             addHint("OBJECT_STORAGE", "Google Cloud Storage", key, rel);
         } else if (l.contains("blob.core.windows.net")) {
             addHint("OBJECT_STORAGE", "Azure Blob Storage", key, rel);
+        } else if (l.contains("mailchimp.com")) {
+            addHint("SAAS_HTTP", "Mailchimp", line.length() > 120 ? key : line, rel);
+        } else if (l.contains("visa.com") || l.contains("cybersource.com")) {
+            addHint("SAAS_HTTP", "Visa / banking control API", line.length() > 120 ? key : line, rel);
         } else if (l.contains("stripe.com") || l.contains("twilio.com") || l.contains("sendgrid")) {
             addHint("SAAS_HTTP", "Third-party SaaS API", line.length() > 120 ? key : line, rel);
+        } else if (l.contains("accounts.google.com") || l.contains("oauth2.googleapis.com")) {
+            addHint("SAAS_HTTP", "Google Sign-In / OAuth", line.length() > 120 ? key : line, rel);
         } else if (key.startsWith("AWS_") || key.startsWith("AZURE_") || key.startsWith("GCP_")
                 || key.startsWith("GOOGLE_") || l.contains("azure.com") || l.contains("googleapis.com")) {
             addHint("CLOUD_PROVIDER", "Cloud provider SDK/config", key, rel);

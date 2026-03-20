@@ -1,0 +1,44 @@
+# Integration endpoints and Spring-style configuration (scanned by Archimo ConfigMap logic).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ecommerce-integration-env
+  namespace: ecommerce-sample
+  labels:
+    app.kubernetes.io/component: configuration
+data:
+  application.properties: |
+    # --- MariaDB ---
+    spring.datasource.url=jdbc:mariadb://mariadb:3306/ecommerce
+    spring.datasource.username=ecommerce
+    spring.datasource.password=${DATABASE_PASSWORD}
+
+    # --- Redis cache (sessions, catalog cache) ---
+    spring.data.redis.host=redis
+    spring.data.redis.port=6379
+
+    # --- Kafka (domain events) ---
+    spring.kafka.bootstrap-servers=kafka:9092
+
+    # --- AWS S3 (product images, invoices PDF export) ---
+    aws.region=eu-west-1
+    aws.s3.bucket=archimo-ecommerce-assets
+    aws.s3.endpoint=https://s3.eu-west-1.amazonaws.com
+
+    # --- Google Sign-In + GCP (OAuth / IAM; Workload Identity on the pod) ---
+    spring.security.oauth2.client.registration.google.client-id=${GOOGLE_OAUTH_CLIENT_ID}
+    spring.security.oauth2.client.provider.google.issuer-uri=https://accounts.google.com
+    spring.cloud.gcp.project-id=${GCP_PROJECT_ID}
+    app.gcp.iam.credentials-path=/var/secrets/gcp/key.json
+
+    # --- API gateway (internal routing; clients hit NGINX -> gateway -> app) ---
+    app.internal.gateway-base-url=http://api-gateway:8080
+
+    # --- Stripe (payments) ---
+    app.payments.stripe.api-base=https://api.stripe.com
+
+    # --- Visa (fraud / VPP / banking control APIs — sandbox) ---
+    app.payments.visa.fraud-control-api=https://sandbox.api.visa.com
+
+    # --- Mailchimp (newsletters, transactional lists) ---
+    app.marketing.mailchimp.api-base=https://us11.api.mailchimp.com/3.0/

@@ -28,6 +28,8 @@ import java.util.stream.Stream;
  */
 public final class MermaidOutput implements DiagramOutput {
 
+    private static final int MAX_ENDPOINT_SPECIFIC_DIAGRAMS = 80;
+
     @Override
     public void write(ApplicationModules modules, Path outputDir, ExtractResult result) throws IOException {
         List<EventFlow> flows = result.flows();
@@ -39,12 +41,16 @@ public final class MermaidOutput implements DiagramOutput {
         writeEntityRelationshipDiagram(outputDir, result.entityRelations());
         writeDeploymentDiagram(outputDir, result.architectureInfos(), result.endpointFlows(), result.messagingFlows(), result.entityRelations());
         writeDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
-        writeEndpointDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
+        if (result.endpointFlows().size() <= MAX_ENDPOINT_SPECIFIC_DIAGRAMS) {
+            writeEndpointDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
+        }
         writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies(), result.fullDependencyMode());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
         writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
         writeEndpointFlowDiagram(outputDir, result.endpointFlows(), result.classDependencies(), result.architectureInfos());
-        writeEndpointSequenceDiagram(outputDir, result.endpointFlows(), result.classDependencies(), result.architectureInfos());
+        if (result.endpointFlows().size() <= MAX_ENDPOINT_SPECIFIC_DIAGRAMS) {
+            writeEndpointSequenceDiagram(outputDir, result.endpointFlows(), result.classDependencies(), result.architectureInfos());
+        }
         writeMessagingFlows(outputDir, result.messagingFlows());
         writeBpmnSequences(outputDir, result.bpmnFlows());
     }
@@ -161,27 +167,23 @@ public final class MermaidOutput implements DiagramOutput {
         }
 
         try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("architecture-class-diagram.mmd")))) {
-            pw.println("%% Class architecture fallback (non-Modulith)");
+            pw.println("%% Class architecture fallback (non-Modulith); layer subgraphs + aggregate flow (avoids O(n²) edges)");
             pw.println("flowchart LR");
 
             for (Map.Entry<String, List<ArchitectureInfo>> entry : byLayer.entrySet()) {
-                for (ArchitectureInfo info : entry.getValue()) {
+                List<ArchitectureInfo> inLayer = entry.getValue();
+                if (inLayer.isEmpty()) continue;
+                String layer = entry.getKey();
+                String subgraphId = "layer_" + sanitizeId(layer);
+                pw.println("  subgraph " + subgraphId + "[\"" + layerDisplayName(layer) + "\"]");
+                for (ArchitectureInfo info : inLayer) {
                     String id = sanitizeId(info.className());
-                    String label = simpleName(info.className());
-                    pw.println("  " + id + "[\"" + label + "\"]");
+                    pw.println("    " + id + "[\"" + simpleName(info.className()) + "\"]");
                 }
+                pw.println("  end");
             }
 
-            for (ArchitectureInfo c : byLayer.getOrDefault("controller", List.of())) {
-                for (ArchitectureInfo s : byLayer.getOrDefault("service", List.of())) {
-                    pw.println("  " + sanitizeId(c.className()) + " --> " + sanitizeId(s.className()));
-                }
-            }
-            for (ArchitectureInfo s : byLayer.getOrDefault("service", List.of())) {
-                for (ArchitectureInfo r : byLayer.getOrDefault("repository", List.of())) {
-                    pw.println("  " + sanitizeId(s.className()) + " --> " + sanitizeId(r.className()));
-                }
-            }
+            appendArchitectureLayerFlowEdges(pw, byLayer);
 
             pw.println("  classDef controller fill:#e3f2fd,stroke:#1565c0,stroke-width:2px");
             pw.println("  classDef service fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px");
@@ -190,6 +192,34 @@ public final class MermaidOutput implements DiagramOutput {
             applyLayerClass(pw, byLayer, "service");
             applyLayerClass(pw, byLayer, "repository");
         }
+    }
+
+    private static String layerDisplayName(String layer) {
+        if (layer == null || layer.isBlank()) return layer;
+        return Character.toUpperCase(layer.charAt(0)) + layer.substring(1);
+    }
+
+    private static void appendArchitectureLayerFlowEdges(PrintWriter pw, Map<String, List<ArchitectureInfo>> byLayer) {
+        if (hasClasses(byLayer, "controller") && hasClasses(byLayer, "service")) {
+            pw.println("  layer_controller --> layer_service");
+        }
+        if (hasClasses(byLayer, "service") && hasClasses(byLayer, "repository")) {
+            pw.println("  layer_service --> layer_repository");
+        }
+        if (hasClasses(byLayer, "service") && hasClasses(byLayer, "domain")) {
+            pw.println("  layer_service --> layer_domain");
+        }
+        if (hasClasses(byLayer, "controller") && hasClasses(byLayer, "application")) {
+            pw.println("  layer_controller --> layer_application");
+        }
+        if (hasClasses(byLayer, "application") && hasClasses(byLayer, "infrastructure")) {
+            pw.println("  layer_application --> layer_infrastructure");
+        }
+    }
+
+    private static boolean hasClasses(Map<String, List<ArchitectureInfo>> byLayer, String layer) {
+        List<ArchitectureInfo> list = byLayer.get(layer);
+        return list != null && !list.isEmpty();
     }
 
     private void applyLayerClass(PrintWriter pw, Map<String, List<ArchitectureInfo>> byLayer, String layer) {

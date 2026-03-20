@@ -36,9 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -47,6 +44,9 @@ import java.util.stream.StreamSupport;
  * Extracts C4 diagrams (PlantUML), event map, flows and sequences from a Spring Modulith ApplicationModules model.
  */
 public final class ModulithExtractor {
+
+    /** Beyond this, diagram sources are not embedded in site-index.json (loaded on demand from the report). */
+    private static final int INLINE_DIAGRAM_SOURCE_LIMIT = 72;
 
     private final ApplicationModules modules;
     private final Path outputDir;
@@ -77,52 +77,36 @@ public final class ModulithExtractor {
     public ExtractResult extract() throws IOException {
         Files.createDirectories(outputDir);
 
-        ExecutorService executor = Executors.newFixedThreadPool(4);
-        try {
-            // 1. Core extraction (synchronous for now as it's fast and modules are needed)
-            List<ModuleEvents> eventsMap = modules != null ? buildEventsMap() : List.of();
-            List<EventFlow> flows = modules != null ? buildEventFlows() : List.of();
-            List<SequenceFlow> sequences = modules != null ? buildSequences() : List.of();
-            List<ModuleDependency> moduleDependencies = modules != null ? buildModuleDependencies() : List.of();
-            List<CommandFlow> commandFlows = modules != null ? buildCommandFlowsFromEventFlows(flows) : List.of();
+        // 1. Core extraction (synchronous as modules are needed for downstream steps)
+        List<ModuleEvents> eventsMap = modules != null ? buildEventsMap() : List.of();
+        List<EventFlow> flows = modules != null ? buildEventFlows() : List.of();
+        List<SequenceFlow> sequences = modules != null ? buildSequences() : List.of();
+        List<ModuleDependency> moduleDependencies = modules != null ? buildModuleDependencies() : List.of();
+        List<CommandFlow> commandFlows = modules != null ? buildCommandFlowsFromEventFlows(flows) : List.of();
 
-            // 2. Advanced scanners (parallel)
-            BpmnScanner bpmnScanner = new BpmnScanner();
-            CompletableFuture<List<BpmnFlow>> bpmnFuture = CompletableFuture.supplyAsync(() -> bpmnScanner.scan(projectDir), executor);
+        // 2. BPMN scan on common pool only; ArchUnit graph must not be traversed concurrently
+        BpmnScanner bpmnScanner = new BpmnScanner();
+        CompletableFuture<List<BpmnFlow>> bpmnFuture = CompletableFuture.supplyAsync(() -> bpmnScanner.scan(projectDir));
 
-            final List<ArchitectureInfo> architectureInfos;
-            final List<ClassDependency> classDependencies;
-            final List<EntityRelation> entityRelations;
-            final List<EndpointFlow> endpointFlows;
-            final List<MessagingFlow> messagingFlows;
-            final int classesParsedCount;
+        final List<ArchitectureInfo> architectureInfos;
+        final List<ClassDependency> classDependencies;
+        final List<EntityRelation> entityRelations;
+        final List<EndpointFlow> endpointFlows;
+        final List<MessagingFlow> messagingFlows;
+        final int classesParsedCount;
 
-            if (projectDir != null) {
-                Path classesPath = findClassesPath(projectDir);
-                if (classesPath != null && Files.isDirectory(classesPath)) {
-                    JavaClasses classes = new ClassFileImporter().importPath(classesPath);
-                    classesParsedCount = classes.size();
+        if (projectDir != null) {
+            Path classesPath = findClassesPath(projectDir);
+            if (classesPath != null && Files.isDirectory(classesPath)) {
+                JavaClasses classes = new ClassFileImporter().importPath(classesPath);
+                classesParsedCount = classes.size();
 
-                    ArchitectureScanner architectureScanner = new ArchitectureScanner();
-                    CompletableFuture<List<ArchitectureInfo>> archFuture = CompletableFuture.supplyAsync(() -> architectureScanner.scan(classes), executor);
-                    CompletableFuture<List<EntityRelation>> entityFuture = CompletableFuture.supplyAsync(() -> architectureScanner.scanEntityRelations(classes), executor);
-                    CompletableFuture<List<EndpointFlow>> endpointFuture = CompletableFuture.supplyAsync(() -> new EndpointScanner().scan(classes), executor);
-                    CompletableFuture<List<MessagingFlow>> messagingFuture = CompletableFuture.supplyAsync(() -> new MessagingScanner().scan(classes), executor);
-
-                    architectureInfos = archFuture.join();
-                    // Class dependencies need architecture info
-                    classDependencies = architectureScanner.scanClassDependencies(classes, architectureInfos);
-                    entityRelations = entityFuture.join();
-                    endpointFlows = endpointFuture.join();
-                    messagingFlows = messagingFuture.join();
-                } else {
-                    architectureInfos = List.of();
-                    classDependencies = List.of();
-                    entityRelations = List.of();
-                    endpointFlows = List.of();
-                    messagingFlows = List.of();
-                    classesParsedCount = 0;
-                }
+                ArchitectureScanner architectureScanner = new ArchitectureScanner();
+                architectureInfos = architectureScanner.scan(classes);
+                entityRelations = architectureScanner.scanEntityRelations(classes);
+                endpointFlows = new EndpointScanner().scan(classes);
+                messagingFlows = new MessagingScanner().scan(classes);
+                classDependencies = architectureScanner.scanClassDependencies(classes, architectureInfos);
             } else {
                 architectureInfos = List.of();
                 classDependencies = List.of();
@@ -131,51 +115,48 @@ public final class ModulithExtractor {
                 messagingFlows = List.of();
                 classesParsedCount = 0;
             }
-
-            List<BpmnFlow> bpmnFlows = bpmnFuture.join();
-            int bpmnFilesParsed = bpmnScanner.getFilesParsed();
-
-            System.out.println("Parsed " + classesParsedCount + " classes and " + bpmnFilesParsed + " BPMN files.");
-
-            ExtractResult result = new ExtractResult(
-                    eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,
-                    endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos, fullDependencyMode
-            );
-
-            // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
-            for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
-                output.write(modules, outputDir, result);
-            }
-
-            // 4. Generate static website (architecture-as-code navigation & search)
-            writeSite(eventsMap, flows, endpointFlows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows);
-
-            // 5. Write JSON artifacts last (use absolute path so output location is unambiguous)
-            Path jsonDir = outputDir.toAbsolutePath().resolve("json");
-            Files.createDirectories(jsonDir);
-            objectMapper.writeValue(jsonDir.resolve("events-map.json").toFile(), eventsMap);
-            objectMapper.writeValue(jsonDir.resolve("event-flows.json").toFile(), flows);
-            objectMapper.writeValue(jsonDir.resolve("command-flows.json").toFile(), commandFlows);
-            objectMapper.writeValue(jsonDir.resolve("sequences.json").toFile(), sequences);
-            objectMapper.writeValue(jsonDir.resolve("module-dependencies.json").toFile(), moduleDependencies);
-            objectMapper.writeValue(jsonDir.resolve("class-dependencies.json").toFile(), classDependencies);
-            objectMapper.writeValue(jsonDir.resolve("entity-relations.json").toFile(), entityRelations);
-            objectMapper.writeValue(jsonDir.resolve("endpoint-flows.json").toFile(), endpointFlows);
-            objectMapper.writeValue(jsonDir.resolve("endpoint-sequences.json").toFile(), buildEndpointSequencesIndex(endpointFlows));
-            objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
-
-            return result;
-        } finally {
-            executor.shutdown();
-            try {
-                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
-                    executor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                executor.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
+        } else {
+            architectureInfos = List.of();
+            classDependencies = List.of();
+            entityRelations = List.of();
+            endpointFlows = List.of();
+            messagingFlows = List.of();
+            classesParsedCount = 0;
         }
+
+        List<BpmnFlow> bpmnFlows = bpmnFuture.join();
+        int bpmnFilesParsed = bpmnScanner.getFilesParsed();
+
+        System.out.println("Parsed " + classesParsedCount + " classes and " + bpmnFilesParsed + " BPMN files.");
+
+        ExtractResult result = new ExtractResult(
+                eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,
+                endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos, fullDependencyMode
+        );
+
+        // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
+        for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
+            output.write(modules, outputDir, result);
+        }
+
+        // 4. Generate static website (architecture-as-code navigation & search)
+        writeSite(eventsMap, flows, endpointFlows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows);
+
+        // 5. Write JSON artifacts last (use absolute path so output location is unambiguous)
+        Path jsonDir = outputDir.toAbsolutePath().resolve("json");
+        Files.createDirectories(jsonDir);
+        objectMapper.writeValue(jsonDir.resolve("events-map.json").toFile(), eventsMap);
+        objectMapper.writeValue(jsonDir.resolve("event-flows.json").toFile(), flows);
+        objectMapper.writeValue(jsonDir.resolve("command-flows.json").toFile(), commandFlows);
+        objectMapper.writeValue(jsonDir.resolve("sequences.json").toFile(), sequences);
+        objectMapper.writeValue(jsonDir.resolve("module-dependencies.json").toFile(), moduleDependencies);
+        objectMapper.writeValue(jsonDir.resolve("class-dependencies.json").toFile(), classDependencies);
+        objectMapper.writeValue(jsonDir.resolve("entity-relations.json").toFile(), entityRelations);
+        objectMapper.writeValue(jsonDir.resolve("endpoint-flows.json").toFile(), endpointFlows);
+        objectMapper.writeValue(jsonDir.resolve("endpoint-sequences.json").toFile(), buildEndpointSequencesIndex(endpointFlows));
+        objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
+
+        return result;
     }
 
     private List<ModuleEvents> buildEventsMap() {
@@ -403,153 +384,161 @@ public final class ModulithExtractor {
     }
 
     private List<Map<String, Object>> buildDiagramsIndex() throws IOException {
-        List<Map<String, Object>> diagrams = new ArrayList<>();
-
-        // PlantUML files (C4 from Spring Modulith Documenter)
-        // C4 levels: 1 = System context (overview), 2 = Container, 3 = Component (per-module), 4 = Code
+        Path siteDir = outputDir.resolve("site").normalize();
+        List<Path> pumlFiles = new ArrayList<>();
         try (var paths = Files.walk(outputDir, 5)) {
             paths.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".puml"))
-                    .forEach(p -> {
-                        try {
-                            String relative = outputDir.relativize(p).toString().replace('\\', '/');
-                            String fileName = p.getFileName().toString();
-                            String id = fileName.substring(0, fileName.length() - ".puml".length());
-                            String source = Files.readString(p);
-                            int c4Level;
-                            String level;
-                            String category;
-                            String navLabel;
-                            if ("components".equals(id) || fileName.toLowerCase().contains("modules") || fileName.toLowerCase().contains("context")) {
-                                c4Level = 1;
-                                level = "system";
-                                category = "overview";
-                                navLabel = id.replace("-", " ");
-                            } else if (fileName.toLowerCase().contains("container")) {
-                                c4Level = 2;
-                                level = "container";
-                                category = "container";
-                                navLabel = "Containers";
-                            } else if (id.startsWith("module-")) {
-                                c4Level = 3;
-                                level = "component";
-                                category = "module";
-                                navLabel = id.replace("module-", "").replace(".", " / ");
-                            } else if (id.startsWith("endpoint-sequence-")) {
-                                c4Level = 0;
-                                level = "endpoint";
-                                category = "sequence";
-                                navLabel = formatEndpointSequenceLabel(id);
-                            } else if ("endpoint-flow".equals(id)) {
-                                c4Level = 0;
-                                level = "endpoint";
-                                category = "flow";
-                                navLabel = "Endpoint flow";
-                            } else if (id.startsWith("endpoint-data-lineage-")) {
-                                c4Level = 0;
-                                level = "endpoint";
-                                category = "data";
-                                navLabel = formatEndpointDataLineageLabel(id);
-                            } else if ("data-lineage-diagram".equals(id)) {
-                                c4Level = 4;
-                                level = "code";
-                                category = "data";
-                                navLabel = "Data lineage";
-                            } else if ("entity-relationship".equals(id)) {
-                                c4Level = 4;
-                                level = "code";
-                                category = "data";
-                                navLabel = "Entity relationship";
-                            } else if ("deployment-diagram".equals(id)) {
-                                c4Level = 2;
-                                level = "container";
-                                category = "deployment";
-                                navLabel = "Deployment diagram";
-                            } else {
-                                c4Level = 3;
-                                level = "component";
-                                category = "module";
-                                navLabel = id;
-                            }
-                            Map<String, Object> entry = new LinkedHashMap<>();
-                            entry.put("id", id);
-                            entry.put("title", fileName);
-                            entry.put("path", relative);
-                            entry.put("level", level);
-                            entry.put("category", category);
-                            entry.put("c4Level", c4Level);
-                            entry.put("navLabel", navLabel);
-                            entry.put("format", "plantuml");
-                            entry.put("source", source);
-                            diagrams.add(entry);
-                        } catch (IOException e) {
-                            throw new RuntimeException("Failed to read diagram: " + p, e);
-                        }
-                    });
+                    .filter(p -> !p.normalize().startsWith(siteDir))
+                    .forEach(pumlFiles::add);
         }
-
-        // Mermaid files (event flows, sequences, module dependencies)
+        List<Path> mmdFiles = new ArrayList<>();
         Path mermaidDir = outputDir.resolve("mermaid");
         if (Files.isDirectory(mermaidDir)) {
             try (var paths = Files.list(mermaidDir)) {
                 paths.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".mmd"))
-                        .forEach(p -> {
-                            try {
-                                String fileName = p.getFileName().toString();
-                                String id = fileName.substring(0, fileName.length() - ".mmd".length());
-                                String relative = "mermaid/" + fileName;
-                                String source = Files.readString(p);
-                                String level;
-                                String category;
-                                String navLabel;
-                                if (id.startsWith("endpoint-sequence-")) {
-                                    level = "endpoint";
-                                    category = "sequence";
-                                    navLabel = formatEndpointSequenceLabel(id);
-                                } else if ("endpoint-flow".equals(id)) {
-                                    level = "endpoint";
-                                    category = "flow";
-                                    navLabel = "Endpoint flow";
-                                } else if (id.startsWith("endpoint-data-lineage-")) {
-                                    level = "endpoint";
-                                    category = "data";
-                                    navLabel = formatEndpointDataLineageLabel(id);
-                                } else if ("data-lineage-diagram".equals(id)) {
-                                    level = "code";
-                                    category = "data";
-                                    navLabel = "Data lineage";
-                                } else if ("entity-relationship".equals(id)) {
-                                    level = "code";
-                                    category = "data";
-                                    navLabel = "Entity relationship";
-                                } else if ("deployment-diagram".equals(id)) {
-                                    level = "container";
-                                    category = "deployment";
-                                    navLabel = "Deployment diagram";
-                                } else {
-                                    level = "mermaid";
-                                    category = id.startsWith("sequence-") ? "sequence" : id.equals("event-flows") ? "flow" : "dependencies";
-                                    navLabel = id.replaceAll("-", " ");
-                                }
-
-                                Map<String, Object> entry = new LinkedHashMap<>();
-                                entry.put("id", id);
-                                entry.put("title", id.replace('-', ' '));
-                                entry.put("path", relative);
-                                entry.put("level", level);
-                                entry.put("category", category);
-                                entry.put("c4Level", 0);  // Mermaid: event flows, sequences, dependencies
-                                entry.put("navLabel", navLabel);
-                                entry.put("format", "mermaid");
-                                entry.put("source", source);
-                                diagrams.add(entry);
-                            } catch (IOException e) {
-                                throw new RuntimeException("Failed to read Mermaid diagram: " + p, e);
-                            }
-                        });
+                        .sorted()
+                        .forEach(mmdFiles::add);
             }
         }
+        boolean inlineSources = (pumlFiles.size() + mmdFiles.size()) <= INLINE_DIAGRAM_SOURCE_LIMIT;
 
+        List<Map<String, Object>> diagrams = new ArrayList<>();
+        for (Path p : pumlFiles) {
+            diagrams.add(buildPlantUmlDiagramIndexEntry(p, inlineSources));
+        }
+        for (Path p : mmdFiles) {
+            diagrams.add(buildMermaidDiagramIndexEntry(p, inlineSources));
+        }
         return diagrams;
+    }
+
+    private Map<String, Object> buildPlantUmlDiagramIndexEntry(Path p, boolean inlineSources) throws IOException {
+        String relative = outputDir.relativize(p).toString().replace('\\', '/');
+        String fileName = p.getFileName().toString();
+        String id = fileName.substring(0, fileName.length() - ".puml".length());
+        int c4Level;
+        String level;
+        String category;
+        String navLabel;
+        if ("components".equals(id) || fileName.toLowerCase().contains("modules") || fileName.toLowerCase().contains("context")) {
+            c4Level = 1;
+            level = "system";
+            category = "overview";
+            navLabel = id.replace("-", " ");
+        } else if (fileName.toLowerCase().contains("container")) {
+            c4Level = 2;
+            level = "container";
+            category = "container";
+            navLabel = "Containers";
+        } else if (id.startsWith("module-")) {
+            c4Level = 3;
+            level = "component";
+            category = "module";
+            navLabel = id.replace("module-", "").replace(".", " / ");
+        } else if (id.startsWith("endpoint-sequence-")) {
+            c4Level = 0;
+            level = "endpoint";
+            category = "sequence";
+            navLabel = formatEndpointSequenceLabel(id);
+        } else if ("endpoint-flow".equals(id)) {
+            c4Level = 0;
+            level = "endpoint";
+            category = "flow";
+            navLabel = "Endpoint flow";
+        } else if (id.startsWith("endpoint-data-lineage-")) {
+            c4Level = 0;
+            level = "endpoint";
+            category = "data";
+            navLabel = formatEndpointDataLineageLabel(id);
+        } else if ("data-lineage-diagram".equals(id)) {
+            c4Level = 4;
+            level = "code";
+            category = "data";
+            navLabel = "Data lineage";
+        } else if ("entity-relationship".equals(id)) {
+            c4Level = 4;
+            level = "code";
+            category = "data";
+            navLabel = "Entity relationship";
+        } else if ("deployment-diagram".equals(id)) {
+            c4Level = 2;
+            level = "container";
+            category = "deployment";
+            navLabel = "Deployment diagram";
+        } else {
+            c4Level = 3;
+            level = "component";
+            category = "module";
+            navLabel = id;
+        }
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("id", id);
+        entry.put("title", fileName);
+        entry.put("path", relative);
+        entry.put("level", level);
+        entry.put("category", category);
+        entry.put("c4Level", c4Level);
+        entry.put("navLabel", navLabel);
+        entry.put("format", "plantuml");
+        if (inlineSources) {
+            entry.put("source", Files.readString(p));
+        } else {
+            entry.put("sourcePath", "../" + relative);
+        }
+        return entry;
+    }
+
+    private Map<String, Object> buildMermaidDiagramIndexEntry(Path p, boolean inlineSources) throws IOException {
+        String fileName = p.getFileName().toString();
+        String id = fileName.substring(0, fileName.length() - ".mmd".length());
+        String relative = "mermaid/" + fileName;
+        String level;
+        String category;
+        String navLabel;
+        if (id.startsWith("endpoint-sequence-")) {
+            level = "endpoint";
+            category = "sequence";
+            navLabel = formatEndpointSequenceLabel(id);
+        } else if ("endpoint-flow".equals(id)) {
+            level = "endpoint";
+            category = "flow";
+            navLabel = "Endpoint flow";
+        } else if (id.startsWith("endpoint-data-lineage-")) {
+            level = "endpoint";
+            category = "data";
+            navLabel = formatEndpointDataLineageLabel(id);
+        } else if ("data-lineage-diagram".equals(id)) {
+            level = "code";
+            category = "data";
+            navLabel = "Data lineage";
+        } else if ("entity-relationship".equals(id)) {
+            level = "code";
+            category = "data";
+            navLabel = "Entity relationship";
+        } else if ("deployment-diagram".equals(id)) {
+            level = "container";
+            category = "deployment";
+            navLabel = "Deployment diagram";
+        } else {
+            level = "mermaid";
+            category = id.startsWith("sequence-") ? "sequence" : id.equals("event-flows") ? "flow" : "dependencies";
+            navLabel = id.replaceAll("-", " ");
+        }
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("id", id);
+        entry.put("title", id.replace('-', ' '));
+        entry.put("path", relative);
+        entry.put("level", level);
+        entry.put("category", category);
+        entry.put("c4Level", 0);
+        entry.put("navLabel", navLabel);
+        entry.put("format", "mermaid");
+        if (inlineSources) {
+            entry.put("source", Files.readString(p));
+        } else {
+            entry.put("sourcePath", "../" + relative);
+        }
+        return entry;
     }
 
     private String formatEndpointSequenceLabel(String id) {

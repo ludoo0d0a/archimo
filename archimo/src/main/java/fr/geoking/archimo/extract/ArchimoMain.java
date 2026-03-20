@@ -187,7 +187,11 @@ public final class ArchimoMain {
 
             List<String> cmd = new ArrayList<>();
             cmd.add(getJavaExecutable());
-            if (config.xmx != null) cmd.add("-Xmx" + config.xmx);
+            if (config.xmx != null) {
+                cmd.add("-Xmx" + config.xmx);
+            } else {
+                cmd.add("-Xmx1536m");
+            }
             if (config.xms != null) cmd.add("-Xms" + config.xms);
             if (config.xss != null) cmd.add("-Xss" + config.xss);
             cmd.add("@" + argsFile.toAbsolutePath());

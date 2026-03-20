@@ -30,6 +30,9 @@ import java.util.stream.Stream;
  */
 public final class PlantUmlOutput implements DiagramOutput {
 
+    /** Per-endpoint sequence + data-lineage files scale with HTTP mappings, not application class count. */
+    private static final int MAX_ENDPOINT_SPECIFIC_DIAGRAMS = 80;
+
     @Override
     public void write(ApplicationModules modules, Path outputDir, ExtractResult result) throws IOException {
         if (modules != null) {
@@ -46,12 +49,16 @@ public final class PlantUmlOutput implements DiagramOutput {
         writeEntityRelationshipDiagram(outputDir, result.entityRelations());
         writeDeploymentDiagram(outputDir, result.architectureInfos(), result.endpointFlows(), result.messagingFlows(), result.entityRelations());
         writeDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
-        writeEndpointDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
+        if (result.endpointFlows().size() <= MAX_ENDPOINT_SPECIFIC_DIAGRAMS) {
+            writeEndpointDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
+        }
         writeComponentDependenciesDiagram(outputDir, result.architectureInfos(), result.classDependencies(), result.fullDependencyMode());
         writeArchitectureFlowDiagram(outputDir, result.architectureInfos());
         writeArchitectureSequenceDiagram(outputDir, result.architectureInfos(), result.classDependencies());
         writeEndpointFlowDiagram(outputDir, result.endpointFlows(), result.classDependencies(), result.architectureInfos());
-        writeEndpointSequenceDiagram(outputDir, result.endpointFlows(), result.classDependencies(), result.architectureInfos());
+        if (result.endpointFlows().size() <= MAX_ENDPOINT_SPECIFIC_DIAGRAMS) {
+            writeEndpointSequenceDiagram(outputDir, result.endpointFlows(), result.classDependencies(), result.architectureInfos());
+        }
         writeMessagingDiagram(outputDir, result.messagingFlows());
         writeBpmnDiagram(outputDir, result.bpmnFlows());
     }

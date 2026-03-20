@@ -94,9 +94,9 @@ class MermaidOutputTest {
         assertThat(architectureMmd).contains("OwnerController");
         assertThat(architectureMmd).contains("OwnerService");
         assertThat(architectureMmd).contains("OwnerRepository");
-        assertThat(architectureMmd).contains("OwnerController\"]");
-        assertThat(architectureMmd).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerService");
-        assertThat(architectureMmd).contains("com_example_petclinic_OwnerService --> com_example_petclinic_OwnerRepository");
+        assertThat(architectureMmd).contains("subgraph layer_controller");
+        assertThat(architectureMmd).contains("layer_controller --> layer_service");
+        assertThat(architectureMmd).contains("layer_service --> layer_repository");
 
         String componentMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-component-dependencies.mmd"));
         assertThat(componentMmd).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerService");

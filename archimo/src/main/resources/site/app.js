@@ -60,7 +60,7 @@
       renderDiagramLists();
       renderEndpointList();
       renderSearch(initialSearchTerm);
-      selectInitialDiagram();
+      await selectInitialDiagram();
     } catch (err) {
       console.error('Report init error', err);
       showError('Could not initialize report: ' + (err.message || String(err)));
@@ -84,7 +84,7 @@
         theme: isDark ? 'dark' : 'default'
       });
       if (selectedDiagram && selectedDiagram.format === 'mermaid') {
-        selectDiagram(selectedDiagram);
+        void selectDiagram(selectedDiagram);
       }
     }
   }
@@ -128,8 +128,8 @@
     const exportAllZipBtn = document.getElementById('exportAllZipBtn');
     const printAllBtn = document.getElementById('printAllBtn');
 
-    if (exportPngBtn) exportPngBtn.onclick = () => exportCurrentDiagram('png');
-    if (exportPdfBtn) exportPdfBtn.onclick = () => exportCurrentDiagram('pdf');
+    if (exportPngBtn) exportPngBtn.onclick = () => void exportCurrentDiagram('png');
+    if (exportPdfBtn) exportPdfBtn.onclick = () => void exportCurrentDiagram('pdf');
     if (exportAllZipBtn) exportAllZipBtn.onclick = () => exportAllAsZip();
     if (printAllBtn) printAllBtn.onclick = () => printAllDiagrams();
 
@@ -200,7 +200,7 @@
         const a = document.createElement('a');
         a.href = '#';
         a.textContent = d.navLabel || d.title || d.id || 'Diagram';
-        a.addEventListener('click', (e) => { e.preventDefault(); selectDiagram(d); });
+        a.addEventListener('click', (e) => { e.preventDefault(); void selectDiagram(d); });
         a.dataset.diagramId = String(d.id || '');
         li.appendChild(a);
         list.appendChild(li);
@@ -338,7 +338,7 @@
     const id = endpointDataLineageDiagramId(endpoint);
     if (!id) return;
     const direct = index.diagrams.find(d => String(d.id || '') === String(id));
-    if (direct) selectDiagram(direct);
+    if (direct) void selectDiagram(direct);
   }
 
   function openEndpointSequence(endpoint) {
@@ -357,18 +357,18 @@
     }
     const direct = index.diagrams.find(d => String(d.id || '') === seqId);
     if (direct) {
-      selectDiagram(direct);
+      void selectDiagram(direct);
       return;
     }
 
     const fallback = index.diagrams.find(d => String(d.id || '').startsWith('endpoint-sequence-'));
     if (fallback) {
-      selectDiagram(fallback);
+      void selectDiagram(fallback);
       return;
     }
     const endpointFlow = index.diagrams.find(d => String(d.id || '') === 'endpoint-flow');
     if (endpointFlow) {
-      selectDiagram(endpointFlow);
+      void selectDiagram(endpointFlow);
     }
   }
 
@@ -379,12 +379,12 @@
     return index.diagrams[0];
   }
 
-  function selectFirstDiagram() {
+  async function selectFirstDiagram() {
     const d = firstSelectableDiagram();
     const titleEl = document.getElementById('diagramViewerTitle');
     const viewerEl = document.getElementById('diagramViewer');
     if (d) {
-      selectDiagram(d);
+      await selectDiagram(d);
     } else {
       if (titleEl) titleEl.textContent = 'No diagrams';
       const msg = (index && index.diagrams && index.diagrams.length === 0)
@@ -394,18 +394,31 @@
     }
   }
 
-  function selectInitialDiagram() {
+  async function selectInitialDiagram() {
     if (initialDiagramId && index && index.diagrams && index.diagrams.length) {
       const initial = index.diagrams.find(d => String(d.id || '') === String(initialDiagramId));
       if (initial) {
-        selectDiagram(initial);
+        await selectDiagram(initial);
         return;
       }
     }
-    selectFirstDiagram();
+    await selectFirstDiagram();
   }
 
-  function selectDiagram(d) {
+  async function ensureDiagramSource(d) {
+    if (!d || d.source) return d;
+    if (!d.sourcePath) return d;
+    try {
+      const res = await fetch(d.sourcePath);
+      if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+      d.source = await res.text();
+    } catch (err) {
+      console.error('Failed to load diagram source from ' + d.sourcePath, err);
+    }
+    return d;
+  }
+
+  async function selectDiagram(d) {
     selectedDiagram = d;
     showingSource = false;
     document.querySelectorAll('.diagram-item a').forEach(a => a.classList.remove('selected'));
@@ -423,6 +436,15 @@
       : null;
     if (activeLink) activeLink.classList.add('selected');
     if (sourceBlock) sourceBlock.classList.add('hidden');
+
+    if (d.sourcePath && !d.source) {
+      viewerEl.innerHTML = '<p class="no-diagram">Loading diagram…</p>';
+    } else {
+      viewerEl.innerHTML = '';
+    }
+
+    await ensureDiagramSource(d);
+
     if (d.source) {
       if (viewSourceBtn) viewSourceBtn.classList.remove('hidden');
       if (sourceText) sourceText.textContent = d.source;
@@ -430,30 +452,31 @@
       if (viewSourceBtn) viewSourceBtn.classList.add('hidden');
     }
 
-    viewerEl.innerHTML = '';
     if (!d.source) {
       viewerEl.textContent = 'Diagram source not available.';
+      syncUrlState();
       return;
     }
 
+    viewerEl.innerHTML = '';
     if (d.format === 'mermaid') {
-      renderMermaid(viewerEl, d.source).then(() => {
-        const searchInput = document.getElementById('searchInput');
-        if (searchInput && searchInput.value) highlightInDiagram(searchInput.value.trim());
-      });
+      await renderMermaid(viewerEl, d.source);
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput && searchInput.value) highlightInDiagram(searchInput.value.trim());
     } else if (d.format === 'plantuml') {
-      renderPlantUmlKroki(viewerEl, d.source).then(() => {
-        const searchInput = document.getElementById('searchInput');
-        if (searchInput && searchInput.value) highlightInDiagram(searchInput.value.trim());
-      });
+      await renderPlantUmlKroki(viewerEl, d.source);
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput && searchInput.value) highlightInDiagram(searchInput.value.trim());
     } else {
       viewerEl.textContent = 'Unknown diagram format.';
     }
     syncUrlState();
   }
 
-  function toggleSource() {
-    if (!selectedDiagram || !selectedDiagram.source) return;
+  async function toggleSource() {
+    if (!selectedDiagram) return;
+    await ensureDiagramSource(selectedDiagram);
+    if (!selectedDiagram.source) return;
     showingSource = !showingSource;
     const sourceBlock = document.getElementById('diagramSourceBlock');
     const viewSourceBtn = document.getElementById('viewSourceBtn');
@@ -517,14 +540,15 @@
         group.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          selectDiagram(target);
+          void selectDiagram(target);
         });
       }
     });
   }
 
-  function exportCurrentDiagram(format) {
+  async function exportCurrentDiagram(format) {
     if (!selectedDiagram) return;
+    await ensureDiagramSource(selectedDiagram);
     const encoded = encodeKroki(selectedDiagram.source);
     if (!encoded) return;
     const type = selectedDiagram.format === 'mermaid' ? 'mermaid' : 'plantuml';
@@ -562,6 +586,7 @@
 
     try {
       for (const d of index.diagrams) {
+        await ensureDiagramSource(d);
         const encoded = encodeKroki(d.source);
         if (!encoded) continue;
         const type = d.format === 'mermaid' ? 'mermaid' : 'plantuml';
@@ -602,12 +627,17 @@
     document.querySelector('footer').classList.add('hidden');
 
     for (const d of index.diagrams) {
+      await ensureDiagramSource(d);
       const section = document.createElement('section');
       section.className = 'print-diagram-section';
       section.innerHTML = `<h2>${d.navLabel || d.title}</h2><div class="print-svg-container"></div>`;
       printArea.appendChild(section);
       const container = section.querySelector('.print-svg-container');
 
+      if (!d.source) {
+        container.innerHTML = '<p class="no-diagram">Source not available.</p>';
+        continue;
+      }
       if (d.format === 'mermaid') {
         const id = 'print-mermaid-' + Math.random().toString(36).substr(2, 9);
         try {
@@ -904,17 +934,17 @@
     const diagrams = sortedDiagrams();
     if (!diagrams.length) return;
     if (!selectedDiagram || selectedDiagram.id == null) {
-      selectDiagram(diagrams[0]);
+      void selectDiagram(diagrams[0]);
       return;
     }
     const currentId = String(selectedDiagram.id);
     const idx = diagrams.findIndex(d => String(d.id || '') === currentId);
     if (idx === -1) {
-      selectDiagram(diagrams[0]);
+      void selectDiagram(diagrams[0]);
       return;
     }
     const nextIdx = (idx + step + diagrams.length) % diagrams.length;
-    selectDiagram(diagrams[nextIdx]);
+    void selectDiagram(diagrams[nextIdx]);
   }
 
   async function copyDeepLink(buttonEl) {

@@ -15,6 +15,7 @@ import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.concurrent.Executors;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -48,7 +49,7 @@ public final class ArchimoMain {
             return;
         }
 
-        if (config.projectDir != null) {
+        if (config.projectDir != null && !config.internalChild) {
             runProjectMode(config);
             return;
         }
@@ -85,7 +86,7 @@ public final class ArchimoMain {
                 System.exit(1);
             }
 
-            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.module, config.serve, config.verbose, config.logFile, config.xmx, config.xms, config.xss);
+            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.module, config.serve, config.verbose, config.logFile, config.xmx, config.xms, config.xss, false);
             runProjectMode(newConfig);
 
         } catch (Exception e) {
@@ -179,6 +180,7 @@ public final class ArchimoMain {
             if (config.logFile != null) {
                 javaArgs.add("--log-file=" + config.logFile.getAbsolutePath());
             }
+            javaArgs.add("--internal-child");
 
             Path argsFile = Files.createTempFile(target, "archimo-java-args-", ".txt");
             Files.write(argsFile, javaArgs);
@@ -319,7 +321,7 @@ public final class ArchimoMain {
             logger.debug("  - Mermaid: " + outputDir.resolve("mermaid"));
 
             writeGitHubSummary(result, outputDir);
-            if (config.serve) {
+            if (config.serve && !config.internalChild) {
                 startWebServer(outputDir.resolve("site"));
             }
         } catch (Exception e) {
@@ -372,7 +374,7 @@ public final class ArchimoMain {
             int port = 8080;
             HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
             server.createContext("/", new StaticFileHandler(siteDir));
-            server.setExecutor(null);
+            server.setExecutor(Executors.newFixedThreadPool(2));
             logger.info("\nWeb server started at http://localhost:" + port);
             logger.info("To run it manually: python3 -m http.server -d " + siteDir.toAbsolutePath() + " " + port);
             logger.info("Press Ctrl+C to stop.\n");
@@ -532,8 +534,9 @@ public final class ArchimoMain {
         final String xmx;
         final String xms;
         final String xss;
+        final boolean internalChild;
 
-        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode, String module, boolean serve, boolean verbose, java.io.File logFile, String xmx, String xms, String xss) {
+        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode, String module, boolean serve, boolean verbose, java.io.File logFile, String xmx, String xms, String xss, boolean internalChild) {
             this.projectDir = projectDir;
             this.appClass = appClass;
             this.basePackage = basePackage;
@@ -548,6 +551,7 @@ public final class ArchimoMain {
             this.xmx = xmx;
             this.xms = xms;
             this.xss = xss;
+            this.internalChild = internalChild;
         }
 
         static Config parse(String[] args) {
@@ -565,6 +569,7 @@ public final class ArchimoMain {
             String xmx = null;
             String xms = null;
             String xss = null;
+            boolean internalChild = false;
             for (String a : args) {
                 if (a.startsWith("--project-dir=")) projectDir = new java.io.File(a.substring("--project-dir=".length()));
                 else if (a.startsWith("--app-class=")) appClass = a.substring("--app-class=".length()).trim();
@@ -580,10 +585,11 @@ public final class ArchimoMain {
                 else if (a.startsWith("--xmx=")) xmx = a.substring("--xmx=".length()).trim();
                 else if (a.startsWith("--xms=")) xms = a.substring("--xms=".length()).trim();
                 else if (a.startsWith("--xss=")) xss = a.substring("--xss=".length()).trim();
+                else if (a.equals("--internal-child")) internalChild = true;
             }
             if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow) return null;
             if (projectDir != null && !projectDir.isDirectory()) return null;
-            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, module, serve, verbose, logFile, xmx, xms, xss);
+            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, module, serve, verbose, logFile, xmx, xms, xss, internalChild);
         }
     }
 
@@ -624,7 +630,7 @@ public final class ArchimoMain {
             }
         }
 
-        private void logToDisk(String msg) {
+        private synchronized void logToDisk(String msg) {
             if (logFile != null) {
                 try (PrintWriter pw = new PrintWriter(new FileOutputStream(logFile, true))) {
                     pw.println(msg);

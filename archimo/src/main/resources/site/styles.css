@@ -496,6 +496,35 @@ body.dark-mode .endpoint-badge-data {
   margin-bottom: 1rem;
 }
 
+.diagram-provenance {
+  margin: -0.5rem 0 0.75rem 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-muted, #64748b);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+}
+
+.diagram-provenance .prov-sep {
+  opacity: 0.45;
+  user-select: none;
+}
+
+.diagram-provenance .prov-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.diagram-provenance .prov-k {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
 .diagram-viewer-title {
   margin: 0;
   font-size: 1.25rem;

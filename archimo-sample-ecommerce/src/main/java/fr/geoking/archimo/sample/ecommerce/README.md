@@ -44,6 +44,15 @@ Nested modules are only visible to their parent and siblings; other top-level mo
 
 Cross-module events are between different top-level modules; internal events are published and consumed within the same module.
 
+## Outbound HTTP (sample client modules)
+
+The app depends on **`archimo-sample-stripe-client`** and **`archimo-sample-gravatar-client`**:
+
+- **Payments**: `OrderService.payOrder` calls `StripePaymentBridge`, which uses the Feign `StripeApiClient` to `GET /v1/balance` when `stripe.secret-key` / `STRIPE_SECRET_KEY` is set (probe only; failures are logged).
+- **Avatars**: `CustomerService.register` calls `CustomerGravatarBridge`, which uses the OpenAPI-generated OkHttp `ProfilesApi` when `gravatar.api-key` is non-empty (logs the avatar URL at DEBUG when found).
+
+See `src/main/resources/application.properties` for property names.
+
 ## Kubernetes sample
 
 Under **`k8s/`**: illustrative manifests (MariaDB, Redis, Kafka + ZooKeeper, NGINX front, Spring Cloud Gateway, app `Deployment`, Ingress, ConfigMap/Secret for AWS S3, Google OAuth/GCP WI, Stripe, Visa, Mailchimp). See `k8s/README.md`. Build the app JAR image with **`Dockerfile`** and the static storefront image with **`Dockerfile.nginx`** (content under **`nginx/html/`**).

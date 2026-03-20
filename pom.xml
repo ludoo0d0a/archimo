@@ -19,8 +19,9 @@
     </scm>
 
     <modules>
-        <module>archimo-sample-ecommerce</module>
         <module>archimo-sample-stripe-client</module>
+        <module>archimo-sample-gravatar-client</module>
+        <module>archimo-sample-ecommerce</module>
         <module>archimo</module>
     </modules>
 

@@ -879,6 +879,7 @@ public final class ModulithExtractor {
         } else {
             entry.put("sourcePath", "../" + relative);
         }
+        applyDiagramProvenance(entry);
         return entry;
     }
 
@@ -932,7 +933,59 @@ public final class ModulithExtractor {
         } else {
             entry.put("sourcePath", "../" + relative);
         }
+        applyDiagramProvenance(entry);
         return entry;
+    }
+
+    /**
+     * Classifies each diagram for the site: who generated the source file, which notation is used,
+     * and how the SPA renders it (Kroki vs in-browser Mermaid).
+     */
+    private static void applyDiagramProvenance(Map<String, Object> entry) {
+        String format = Objects.toString(entry.get("format"), "");
+        String id = Objects.toString(entry.get("id"), "");
+
+        if ("mermaid".equals(format)) {
+            entry.put("provenanceSource", "archimo");
+            entry.put("provenanceSourceLabel", "Archimo");
+            entry.put("provenanceNotation", "mermaid");
+            entry.put("provenanceNotationLabel", "Mermaid");
+            entry.put("provenanceRenderer", "mermaid-js");
+            entry.put("provenanceRendererLabel", "Mermaid (browser)");
+            return;
+        }
+
+        if (!"plantuml".equals(format)) {
+            entry.put("provenanceSource", "unknown");
+            entry.put("provenanceSourceLabel", "Unknown");
+            entry.put("provenanceNotation", "unknown");
+            entry.put("provenanceNotationLabel", "Unknown");
+            entry.put("provenanceRenderer", "unknown");
+            entry.put("provenanceRendererLabel", "Unknown");
+            return;
+        }
+
+        boolean springModulith = "components".equals(id) || id.startsWith("module-");
+        entry.put("provenanceSource", springModulith ? "spring-modulith" : "archimo");
+        entry.put("provenanceSourceLabel", springModulith ? "Spring Modulith" : "Archimo");
+
+        boolean c4PlantUml = springModulith || isArchimoC4PlantUmlDiagramId(id);
+        entry.put("provenanceNotation", c4PlantUml ? "c4-plantuml" : "plantuml");
+        entry.put("provenanceNotationLabel", c4PlantUml ? "C4 · PlantUML" : "PlantUML");
+
+        entry.put("provenanceRenderer", "kroki-plantuml");
+        entry.put("provenanceRendererLabel", "Kroki (PlantUML)");
+    }
+
+    /**
+     * Archimo-generated {@code .puml} that includes C4-PlantUML libraries (distinct from plain class/sequence diagrams).
+     */
+    private static boolean isArchimoC4PlantUmlDiagramId(String id) {
+        return "system-context".equals(id)
+                || "c4-containers".equals(id)
+                || "architecture-layers".equals(id)
+                || "deployment-diagram".equals(id)
+                || "messaging-flows".equals(id);
     }
 
     private String formatEndpointSequenceLabel(String id) {

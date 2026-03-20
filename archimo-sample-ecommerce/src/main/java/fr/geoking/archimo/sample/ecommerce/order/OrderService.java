@@ -13,9 +13,11 @@ import java.util.UUID;
 public class OrderService {
 
     private final ApplicationEventPublisher events;
+    private final StripePaymentBridge stripePaymentBridge;
 
-    public OrderService(ApplicationEventPublisher events) {
+    public OrderService(ApplicationEventPublisher events, StripePaymentBridge stripePaymentBridge) {
         this.events = events;
+        this.stripePaymentBridge = stripePaymentBridge;
     }
 
     public void placeOrder(String productId, int quantity) {
@@ -25,6 +27,7 @@ public class OrderService {
     }
 
     public void payOrder(UUID orderId, String paymentId, double amount) {
+        stripePaymentBridge.probeStripeWhenPaying();
         events.publishEvent(new OrderPaid(orderId, paymentId, amount));
         events.publishEvent(new OrderValidated(orderId, amount));
     }

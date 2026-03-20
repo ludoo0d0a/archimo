@@ -313,7 +313,69 @@
     }
   }
 
+  function hideDiagramProvenance() {
+    const el = document.getElementById('diagramProvenance');
+    if (el) {
+      el.classList.add('hidden');
+      el.innerHTML = '';
+    }
+  }
+
+  /**
+   * Uses site-index provenance when present; otherwise infers from diagram id/format (older reports).
+   */
+  function provenanceForDiagram(d) {
+    if (!d) return null;
+    if (d.provenanceSourceLabel && d.provenanceNotationLabel && d.provenanceRendererLabel) {
+      return {
+        source: d.provenanceSourceLabel,
+        notation: d.provenanceNotationLabel,
+        renderer: d.provenanceRendererLabel
+      };
+    }
+    const id = d.id != null ? String(d.id) : '';
+    if (d.format === 'mermaid') {
+      return { source: 'Archimo', notation: 'Mermaid', renderer: 'Mermaid (browser)' };
+    }
+    if (d.format === 'plantuml') {
+      const modulith = id === 'components' || id.startsWith('module-');
+      const c4 =
+        modulith ||
+        id === 'system-context' ||
+        id === 'c4-containers' ||
+        id === 'architecture-layers' ||
+        id === 'deployment-diagram' ||
+        id === 'messaging-flows';
+      return {
+        source: modulith ? 'Spring Modulith' : 'Archimo',
+        notation: c4 ? 'C4 · PlantUML' : 'PlantUML',
+        renderer: 'Kroki (PlantUML)'
+      };
+    }
+    return null;
+  }
+
+  function updateDiagramProvenance(d) {
+    const el = document.getElementById('diagramProvenance');
+    if (!el) return;
+    const p = provenanceForDiagram(d);
+    if (!p) {
+      hideDiagramProvenance();
+      return;
+    }
+    el.classList.remove('hidden');
+    const chip = (k, v) =>
+      '<span class="prov-chip"><span class="prov-k">' + escapeHtml(k) + '</span> ' + escapeHtml(v) + '</span>';
+    el.innerHTML =
+      chip('Source', p.source) +
+      '<span class="prov-sep" aria-hidden="true">·</span>' +
+      chip('Notation', p.notation) +
+      '<span class="prov-sep" aria-hidden="true">·</span>' +
+      chip('Render', p.renderer);
+  }
+
   function showError(msg) {
+    hideDiagramProvenance();
     const titleEl = document.getElementById('diagramViewerTitle');
     const viewerEl = document.getElementById('diagramViewer');
     if (titleEl) titleEl.textContent = 'Error';
@@ -756,6 +818,7 @@
     if (d) {
       await selectDiagram(d);
     } else {
+      hideDiagramProvenance();
       if (titleEl) titleEl.textContent = 'No diagrams';
       const msg = (index && index.diagrams && index.diagrams.length === 0)
         ? 'No diagrams in this report. Ensure the report was generated with diagram output (PlantUML and Mermaid).'
@@ -800,6 +863,7 @@
     if (!titleEl || !viewerEl) return;
 
     titleEl.textContent = d.navLabel || d.title;
+    updateDiagramProvenance(d);
     const diagramId = (d.id != null) ? String(d.id) : '';
     const activeLink = diagramId
       ? Array.from(document.querySelectorAll('.diagram-item a')).find(a => a.dataset.diagramId === diagramId)

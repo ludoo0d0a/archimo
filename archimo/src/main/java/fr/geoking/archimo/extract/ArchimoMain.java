@@ -315,8 +315,8 @@ public final class ArchimoMain {
             ExtractResult result = extractor.extract();
 
             logger.info("Extraction complete. Output: " + outputDir.toAbsolutePath());
-            logger.debug("  - C4/PlantUML: " + outputDir.resolve("*.puml"));
-            logger.debug("  - Module canvases: " + outputDir.resolve("*.adoc"));
+            logger.debug("  - C4/PlantUML: " + outputDir.toAbsolutePath() + File.separator + "*.puml");
+            logger.debug("  - Module canvases: " + outputDir.toAbsolutePath() + File.separator + "*.adoc");
             logger.debug("  - Events map & flows: " + outputDir.resolve("json"));
             logger.debug("  - Mermaid: " + outputDir.resolve("mermaid"));
 

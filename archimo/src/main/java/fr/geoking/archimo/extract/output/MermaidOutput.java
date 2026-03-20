@@ -10,6 +10,7 @@ import fr.geoking.archimo.extract.model.ArchUnitRuleRef;
 import fr.geoking.archimo.extract.model.DesignEdge;
 import fr.geoking.archimo.extract.model.DesignFinding;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.report.C4ReportTree;
 import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import fr.geoking.archimo.extract.model.JmoleculesElement;
 import fr.geoking.archimo.extract.model.ExternalSystemHint;
@@ -38,7 +39,7 @@ public final class MermaidOutput implements DiagramOutput {
     private static final int MAX_ENDPOINT_SPECIFIC_DIAGRAMS = 80;
 
     @Override
-    public void write(ApplicationModules modules, Path outputDir, ExtractResult result) throws IOException {
+    public void write(ApplicationModules modules, Path outputDir, ExtractResult result, C4ReportTree reportTree) throws IOException {
         List<EventFlow> flows = result.flows();
         List<ModuleDependency> deps = result.moduleDependencies();
         writeMermaidEventAndCommandFlows(outputDir, flows);

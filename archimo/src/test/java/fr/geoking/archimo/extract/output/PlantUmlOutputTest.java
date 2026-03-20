@@ -4,6 +4,7 @@ import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
+import fr.geoking.archimo.extract.C4ReportTreeBuilder;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import fr.geoking.archimo.extract.model.ExternalHttpClient;
@@ -62,7 +63,7 @@ class PlantUmlOutputTest {
                 FrameworkDesignInsights.empty()
         );
 
-        new PlantUmlOutput().write(null, outputDir, result);
+        new PlantUmlOutput().write(null, outputDir, result, C4ReportTreeBuilder.build(null, result));
 
         Path systemContext = outputDir.resolve("system-context.puml");
         assertThat(systemContext).exists();
@@ -182,7 +183,7 @@ class PlantUmlOutputTest {
                 FrameworkDesignInsights.empty()
         );
 
-        new PlantUmlOutput().write(null, outputDir, result);
+        new PlantUmlOutput().write(null, outputDir, result, C4ReportTreeBuilder.build(null, result));
         String componentContent = Files.readString(outputDir.resolve("architecture-component-dependencies.puml"));
         assertThat(componentContent).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerEntity");
     }

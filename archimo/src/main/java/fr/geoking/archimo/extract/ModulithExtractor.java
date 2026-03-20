@@ -24,6 +24,8 @@ import fr.geoking.archimo.extract.model.ExternalHttpClient;
 import fr.geoking.archimo.extract.model.InfrastructureTopology;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 import fr.geoking.archimo.extract.model.OpenApiSpecFile;
+import fr.geoking.archimo.extract.model.report.C4ReportTree;
+import fr.geoking.archimo.extract.model.report.DiagramIndexSlot;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -35,11 +37,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -92,6 +96,9 @@ public final class ModulithExtractor {
         this.objectMapper = new ObjectMapper()
                 .enable(SerializationFeature.INDENT_OUTPUT);
     }
+
+    /** In-memory C4/report structure for the last {@link #extract()} run; drives diagram ordering and site JSON. */
+    private C4ReportTree c4ReportTree = C4ReportTree.empty();
 
     /**
      * Run all extractions: C4 diagrams, module canvases, events map, flows, sequences.
@@ -179,9 +186,11 @@ public final class ModulithExtractor {
                 frameworkInsights
         );
 
+        c4ReportTree = C4ReportTreeBuilder.build(modules, result);
+
         // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
         for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
-            output.write(modules, outputDir, result);
+            output.write(modules, outputDir, result, c4ReportTree);
         }
 
         // 4. Generate static website (architecture-as-code navigation & search)
@@ -205,6 +214,7 @@ public final class ModulithExtractor {
         objectMapper.writeValue(jsonDir.resolve("infrastructure-topology.json").toFile(), infrastructureTopology);
         objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
         objectMapper.writeValue(jsonDir.resolve("framework-design-insights.json").toFile(), result.frameworkDesignInsights());
+        objectMapper.writeValue(jsonDir.resolve("c4-report-tree.json").toFile(), c4ReportTree);
 
         return result;
     }
@@ -476,6 +486,7 @@ public final class ModulithExtractor {
         siteIndex.put("deploymentK8sServices", deploymentK8sServicesIndex);
         siteIndex.put("deploymentIngresses", deploymentIngressesIndex);
         siteIndex.put("deploymentExternalSystems", deploymentExternalSystemsIndex);
+        siteIndex.put("c4ReportTree", c4ReportTree);
 
         objectMapper.writeValue(siteDir.resolve("site-index.json").toFile(), siteIndex);
     }
@@ -511,36 +522,88 @@ public final class ModulithExtractor {
 
     private List<Map<String, Object>> buildDiagramsIndex() throws IOException {
         Path siteDir = outputDir.resolve("site").normalize();
-        List<Path> pumlFiles = new ArrayList<>();
+        Path mermaidDir = outputDir.resolve("mermaid");
+
+        Map<String, Path> plantPaths = new LinkedHashMap<>();
         try (var paths = Files.walk(outputDir, 5)) {
             paths.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".puml"))
                     .filter(p -> !p.normalize().startsWith(siteDir))
-                    .forEach(pumlFiles::add);
+                    .forEach(p -> {
+                        String fn = p.getFileName().toString();
+                        String id = fn.substring(0, fn.length() - ".puml".length());
+                        plantPaths.put(id, p);
+                    });
         }
-        List<Path> mmdFiles = new ArrayList<>();
-        Path mermaidDir = outputDir.resolve("mermaid");
+
+        Map<String, Path> mermaidPaths = new LinkedHashMap<>();
         if (Files.isDirectory(mermaidDir)) {
             try (var paths = Files.list(mermaidDir)) {
                 paths.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".mmd"))
                         .sorted()
-                        .forEach(mmdFiles::add);
+                        .forEach(p -> {
+                            String fn = p.getFileName().toString();
+                            String id = fn.substring(0, fn.length() - ".mmd".length());
+                            mermaidPaths.put(id, p);
+                        });
             }
         }
-        boolean inlineSources = (pumlFiles.size() + mmdFiles.size()) <= INLINE_DIAGRAM_SOURCE_LIMIT;
 
+        int totalFiles = plantPaths.size() + mermaidPaths.size();
+        boolean inlineSources = totalFiles <= INLINE_DIAGRAM_SOURCE_LIMIT;
+
+        Set<String> slottedPlant = new HashSet<>();
+        Set<String> slottedMmd = new HashSet<>();
         List<Map<String, Object>> diagrams = new ArrayList<>();
-        for (Path p : pumlFiles) {
-            Map<String, Object> entry = buildPlantUmlDiagramIndexEntry(p, inlineSources);
+
+        for (DiagramIndexSlot slot : c4ReportTree.diagramSlots()) {
+            if ("mermaid".equals(slot.format())) {
+                Path p = mermaidPaths.get(slot.diagramId());
+                if (p == null || !Files.isRegularFile(p)) {
+                    continue;
+                }
+                Map<String, Object> entry = buildMermaidDiagramIndexEntry(p, inlineSources);
+                overlayDiagramSlotMetadata(entry, slot);
+                diagrams.add(entry);
+                slottedMmd.add(slot.diagramId());
+            } else if ("plantuml".equals(slot.format())) {
+                Path p = plantPaths.get(slot.diagramId());
+                if (p == null || !Files.isRegularFile(p)) {
+                    continue;
+                }
+                Map<String, Object> entry = buildPlantUmlDiagramIndexEntry(p, inlineSources);
+                overlayDiagramSlotMetadata(entry, slot);
+                diagrams.add(entry);
+                slottedPlant.add(slot.diagramId());
+            }
+        }
+
+        for (Map.Entry<String, Path> e : plantPaths.entrySet()) {
+            if (slottedPlant.contains(e.getKey())) {
+                continue;
+            }
+            Map<String, Object> entry = buildPlantUmlDiagramIndexEntry(e.getValue(), inlineSources);
             applyCanonicalC4DiagramMetadata(entry);
             diagrams.add(entry);
         }
-        for (Path p : mmdFiles) {
-            Map<String, Object> entry = buildMermaidDiagramIndexEntry(p, inlineSources);
+        for (Map.Entry<String, Path> e : mermaidPaths.entrySet()) {
+            if (slottedMmd.contains(e.getKey())) {
+                continue;
+            }
+            Map<String, Object> entry = buildMermaidDiagramIndexEntry(e.getValue(), inlineSources);
             applyCanonicalC4DiagramMetadata(entry);
             diagrams.add(entry);
         }
+
         sortDiagramsForSiteIndex(diagrams);
         return diagrams;
+    }
+
+    private static void overlayDiagramSlotMetadata(Map<String, Object> entry, DiagramIndexSlot slot) {
+        entry.put("c4Level", slot.c4Level());
+        entry.put("c4Order", slot.c4Order());
+        entry.put("navLabel", slot.navLabel());
+        entry.put("level", slot.levelKey());
+        entry.put("category", slot.category());
     }
 
     private static int diagramC4Level(Map<String, Object> d) {

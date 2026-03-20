@@ -1,6 +1,11 @@
 package fr.geoking.archimo.extract.output;
 
+import fr.geoking.archimo.extract.C4ReportTreeBuilder;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.report.C4Element;
+import fr.geoking.archimo.extract.model.report.C4ElementKind;
+import fr.geoking.archimo.extract.model.report.C4OutboundLink;
+import fr.geoking.archimo.extract.model.report.C4ReportTree;
 import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.modulith.docs.Documenter;
 import org.springframework.modulith.docs.Documenter.DiagramOptions;
@@ -11,7 +16,6 @@ import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
-import fr.geoking.archimo.extract.model.ExternalHttpClient;
 import fr.geoking.archimo.extract.model.ExternalSystemHint;
 import fr.geoking.archimo.extract.model.InfrastructureTopology;
 import fr.geoking.archimo.extract.model.MessagingFlow;
@@ -26,7 +30,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -39,7 +42,7 @@ public final class PlantUmlOutput implements DiagramOutput {
     private static final int MAX_ENDPOINT_SPECIFIC_DIAGRAMS = 80;
 
     @Override
-    public void write(ApplicationModules modules, Path outputDir, ExtractResult result) throws IOException {
+    public void write(ApplicationModules modules, Path outputDir, ExtractResult result, C4ReportTree reportTree) throws IOException {
         if (modules != null) {
             Options docOptions = Options.defaults().withOutputFolder(outputDir.toAbsolutePath().toString());
             Documenter documenter = new Documenter(modules, docOptions);
@@ -49,8 +52,9 @@ public final class PlantUmlOutput implements DiagramOutput {
                     .writeModuleCanvases();
         }
 
-        writeSystemContextDiagram(outputDir, result);
-        writeC4ContainerDiagram(outputDir, result);
+        C4ReportTree tree = reportTree != null ? reportTree : C4ReportTreeBuilder.build(modules, result);
+        writeSystemContextDiagram(outputDir, tree);
+        writeC4ContainerDiagram(outputDir, tree);
         writeArchitectureDiagram(outputDir, result.architectureInfos());
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
         writeEntityRelationshipDiagram(outputDir, result.entityRelations());
@@ -72,135 +76,102 @@ public final class PlantUmlOutput implements DiagramOutput {
     }
 
     /**
-     * C4 Level 1 — system context: this application (main class when known) plus external systems
-     * inferred from outbound HTTP clients and messaging destinations.
+     * C4 Level 1 — emitted from {@link C4ReportTree} (in-memory model built during extraction).
      */
-    private void writeSystemContextDiagram(Path outputDir, ExtractResult result) throws IOException {
-        String mainFqcn = result.applicationMainClass();
-        List<ArchitectureInfo> infos = result.architectureInfos() == null ? List.of() : result.architectureInfos();
-        List<EndpointFlow> endpoints = result.endpointFlows() == null ? List.of() : result.endpointFlows();
-        List<ExternalHttpClient> httpClients = result.externalHttpClients() == null ? List.of() : result.externalHttpClients();
-        List<MessagingFlow> messaging = result.messagingFlows() == null ? List.of() : result.messagingFlows();
-
-        boolean hasInboundHttp = !endpoints.isEmpty() || containsLayer(infos, "controller");
-
-        String appTitle = mainFqcn != null ? simpleName(mainFqcn) : "Application";
-        String appTech = mainFqcn != null ? ("Spring Boot\\n" + c4Escape(mainFqcn)) : "Java application";
+    private void writeSystemContextDiagram(Path outputDir, C4ReportTree tree) throws IOException {
+        var l1 = tree.section(1);
+        if (l1.isEmpty() || l1.get().groups().isEmpty()) {
+            return;
+        }
+        List<C4Element> elements = l1.get().groups().get(0).elements();
+        if (elements.isEmpty()) {
+            return;
+        }
 
         try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("system-context.puml")))) {
             pw.println("@startuml");
             pw.println("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Context.puml");
             pw.println("LAYOUT_WITH_LEGEND()");
-            pw.println("title System context (L1) — " + c4Escape(appTitle));
+            pw.println("title System context (L1) — " + c4Escape(tree.applicationShortName()));
 
-            String userDesc = hasInboundHttp ? "Uses HTTP API / web UI" : "Primary actor / stakeholder";
-            pw.println("Person_Ext(user, \"User\", \"" + c4Escape(userDesc) + "\")");
-
-            pw.println("System(app, \"" + c4Escape(appTitle) + "\", \"" + appTech + "\")");
-
-            String userToApp = hasInboundHttp ? "Uses" : "Interacts with";
-            String userTech = hasInboundHttp ? "HTTPS" : "Various";
-            pw.println("Rel(user, app, \"" + userToApp + "\", \"" + userTech + "\")");
-
-            List<String> httpLabels = new ArrayList<>();
-            Set<String> seenHttp = new LinkedHashSet<>();
-            for (ExternalHttpClient c : httpClients) {
-                String label = externalHttpSystemLabel(c);
-                String norm = label.toLowerCase();
-                if (seenHttp.add(norm)) {
-                    httpLabels.add(label);
+            for (C4Element el : elements) {
+                emitContextPlantUml(pw, el);
+            }
+            for (C4Element el : elements) {
+                for (C4OutboundLink link : el.links()) {
+                    emitContextRel(pw, el.id(), link);
                 }
             }
-            for (int i = 0; i < httpLabels.size(); i++) {
-                String id = "extHttp_" + i;
-                pw.println("System_Ext(" + id + ", \"" + c4Escape(httpLabels.get(i)) + "\", \"Remote HTTP API\")");
-                pw.println("Rel(app, " + id + ", \"HTTP client\")");
-            }
-
-            Set<String> seenMessaging = new LinkedHashSet<>();
-            int msgIdx = 0;
-            for (MessagingFlow f : messaging) {
-                String dest = f.destination() != null ? f.destination() : "";
-                String tech = f.technology() != null ? f.technology() : "";
-                String key = tech + "|" + dest;
-                if (!seenMessaging.add(key)) {
-                    continue;
-                }
-                String title = !dest.isBlank() ? dest : "Messaging";
-                String techLabel = !tech.isBlank() ? tech : "Broker";
-                String id = "extMsg_" + msgIdx++;
-                pw.println("System_Ext(" + id + ", \"" + c4Escape(title) + "\", \"" + c4Escape(techLabel) + "\")");
-                pw.println("Rel(app, " + id + ", \"Messaging\")");
-            }
-
             pw.println("@enduml");
         }
     }
 
     /**
-     * C4 Level 2 — containers inside the software system: static assets, UI, backend, database.
-     * Kept stable across projects so the site sidebar and L1–L4 tree stay aligned.
+     * C4 Level 2 — emitted from {@link C4ReportTree}.
      */
-    private void writeC4ContainerDiagram(Path outputDir, ExtractResult result) throws IOException {
-        String mainFqcn = result.applicationMainClass();
-        List<ArchitectureInfo> infos = result.architectureInfos() == null ? List.of() : result.architectureInfos();
-        List<EndpointFlow> endpoints = result.endpointFlows() == null ? List.of() : result.endpointFlows();
-        List<EntityRelation> entityRelations = result.entityRelations() == null ? List.of() : result.entityRelations();
-
-        boolean hasInboundHttp = !endpoints.isEmpty() || containsLayer(infos, "controller");
-        boolean hasDb = containsLayer(infos, "repository") || !entityRelations.isEmpty();
-
-        String appTitle = mainFqcn != null ? simpleName(mainFqcn) : "Application";
-        String backendTech = mainFqcn != null ? ("Spring Boot\\n" + c4Escape(mainFqcn)) : "Spring Boot / Java";
-        String uiTech = hasInboundHttp ? "Browser; pages & REST clients" : "Browser, desktop, or embedded client";
-        String dbTech = hasDb ? "Relational / JPA persistence" : "Persistence (none detected from scan)";
+    private void writeC4ContainerDiagram(Path outputDir, C4ReportTree tree) throws IOException {
+        var l2 = tree.section(2);
+        if (l2.isEmpty() || l2.get().groups().isEmpty()) {
+            return;
+        }
+        List<C4Element> elements = l2.get().groups().get(0).elements();
+        if (elements.isEmpty()) {
+            return;
+        }
 
         try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("c4-containers.puml")))) {
             pw.println("@startuml");
             pw.println("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Container.puml");
             pw.println("LAYOUT_WITH_LEGEND()");
-            pw.println("title Container diagram (L2) — " + c4Escape(appTitle));
-            pw.println("Person_Ext(user, \"User\", \"Uses the application\")");
-            pw.println("System_Boundary(sys, \"" + c4Escape(appTitle) + "\") {");
-            pw.println("  Container(static_assets, \"Static content\", \"HTML, CSS, JS, images\")");
-            pw.println("  Container(web_ui, \"Web UI\", \"" + c4Escape(uiTech) + "\")");
-            pw.println("  Container(backend, \"Backend\", \"" + backendTech + "\")");
-            pw.println("  ContainerDb(database, \"Database\", \"" + c4Escape(dbTech) + "\")");
+            pw.println("title Container diagram (L2) — " + c4Escape(tree.applicationShortName()));
+            for (C4Element el : elements) {
+                if (el.kind() == C4ElementKind.PERSON) {
+                    emitPersonContainerView(pw, el);
+                }
+            }
+            pw.println("System_Boundary(sys, \"" + c4Escape(tree.applicationShortName()) + "\") {");
+            for (C4Element el : elements) {
+                if (el.kind() == C4ElementKind.CONTAINER) {
+                    pw.println("  Container(" + el.id() + ", \"" + c4Escape(el.label()) + "\", \"" + c4Escape(el.technology()) + "\")");
+                } else if (el.kind() == C4ElementKind.DATABASE) {
+                    pw.println("  ContainerDb(" + el.id() + ", \"" + c4Escape(el.label()) + "\", \"" + c4Escape(el.technology()) + "\")");
+                }
+            }
             pw.println("}");
-            pw.println("Rel(user, web_ui, \"Uses\", \"HTTPS\")");
-            pw.println("Rel(user, static_assets, \"Loads assets\", \"HTTPS\")");
-            pw.println("Rel(web_ui, backend, \"Invokes\", \"HTTP / JSON\")");
-            pw.println("Rel(backend, static_assets, \"May serve\", \"filesystem / CDN\")");
-            pw.println("Rel(backend, database, \"Reads & writes\", \"SQL / ORM\")");
+            for (C4Element el : elements) {
+                for (C4OutboundLink link : el.links()) {
+                    emitContextRel(pw, el.id(), link);
+                }
+            }
             pw.println("@enduml");
         }
     }
 
-    private static String externalHttpSystemLabel(ExternalHttpClient c) {
-        String d = c.detail();
-        if (d != null && !d.isBlank()) {
-            if (d.startsWith("url=")) {
-                return truncateLabel(d.substring(4).trim(), 96);
+    private static void emitContextPlantUml(PrintWriter pw, C4Element el) {
+        String label = c4Escape(el.label());
+        String tech = c4Escape(el.technology());
+        switch (el.kind()) {
+            case PERSON -> pw.println("Person_Ext(" + el.id() + ", \"" + label + "\", \"" + tech + "\")");
+            case SOFTWARE_SYSTEM -> pw.println("System(" + el.id() + ", \"" + label + "\", \"" + tech + "\")");
+            case EXTERNAL_SYSTEM, MESSAGE_BROKER ->
+                    pw.println("System_Ext(" + el.id() + ", \"" + label + "\", \"" + tech + "\")");
+            default -> {
             }
-            if (d.startsWith("name=")) {
-                String rest = d.substring(5).trim();
-                int comma = rest.indexOf(',');
-                String name = comma > 0 ? rest.substring(0, comma).trim() : rest;
-                return !name.isEmpty() ? name : truncateLabel(d, 96);
-            }
-            if (d.startsWith("serviceId=")) {
-                return truncateLabel(d.substring(10).trim(), 96);
-            }
-            return truncateLabel(d, 96);
         }
-        return c.clientKind() + ": " + simpleName(c.declaringClass());
     }
 
-    private static String truncateLabel(String s, int max) {
-        if (s.length() <= max) {
-            return s;
+    private static void emitPersonContainerView(PrintWriter pw, C4Element el) {
+        pw.println("Person_Ext(" + el.id() + ", \"" + c4Escape(el.label()) + "\", \"" + c4Escape(el.technology()) + "\")");
+    }
+
+    private static void emitContextRel(PrintWriter pw, String fromId, C4OutboundLink link) {
+        String lab = c4Escape(link.label());
+        String tech = link.technology();
+        if (tech != null && !tech.isBlank()) {
+            pw.println("Rel(" + fromId + ", " + link.targetElementId() + ", \"" + lab + "\", \"" + c4Escape(tech) + "\")");
+        } else {
+            pw.println("Rel(" + fromId + ", " + link.targetElementId() + ", \"" + lab + "\")");
         }
-        return s.substring(0, max - 3) + "...";
     }
 
     private static String c4Escape(String s) {

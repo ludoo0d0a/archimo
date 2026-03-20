@@ -1,6 +1,7 @@
 package fr.geoking.archimo;
 
 import fr.geoking.archimo.extract.model.EventFlow;
+import fr.geoking.archimo.extract.C4ReportTreeBuilder;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import fr.geoking.archimo.extract.model.InfrastructureTopology;
@@ -54,7 +55,7 @@ class MermaidOutputTest {
                 FrameworkDesignInsights.empty()
         );
 
-        new MermaidOutput().write(null, outputDir, result);
+        new MermaidOutput().write(null, outputDir, result, C4ReportTreeBuilder.build(null, result));
 
         String eventFlowsMmd = Files.readString(outputDir.resolve("mermaid").resolve("event-flows.mmd"));
         assertThat(eventFlowsMmd).contains("No event flows discovered");
@@ -100,7 +101,7 @@ class MermaidOutputTest {
                 FrameworkDesignInsights.empty()
         );
 
-        new MermaidOutput().write(null, outputDir, result);
+        new MermaidOutput().write(null, outputDir, result, C4ReportTreeBuilder.build(null, result));
 
         String architectureMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-class-diagram.mmd"));
         assertThat(architectureMmd).contains("OwnerController");
@@ -179,7 +180,7 @@ class MermaidOutputTest {
                 FrameworkDesignInsights.empty()
         );
 
-        new MermaidOutput().write(null, outputDir, result);
+        new MermaidOutput().write(null, outputDir, result, C4ReportTreeBuilder.build(null, result));
         String componentMmd = Files.readString(outputDir.resolve("mermaid").resolve("architecture-component-dependencies.mmd"));
         assertThat(componentMmd).contains("com_example_petclinic_OwnerController --> com_example_petclinic_OwnerEntity");
     }

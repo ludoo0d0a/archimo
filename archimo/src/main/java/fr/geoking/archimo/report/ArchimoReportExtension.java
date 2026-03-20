@@ -1,5 +1,6 @@
 package fr.geoking.archimo.report;
 
+import fr.geoking.archimo.extract.MessagingScanConcurrency;
 import fr.geoking.archimo.extract.ModulithExtractor;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -12,12 +13,14 @@ import java.nio.file.Paths;
  * JUnit 5 extension that runs the Modulith extractor after all tests in the class,
  * writing PlantUML, Mermaid, JSON and website report to {@code target/archimo-docs}
  * (or {@code archimo.report.outputDir}). Use with {@link ArchimoReport} or set
- * {@code archimo.appClass} and optionally {@code archimo.report.outputDir}.
+ * {@code archimo.appClass} and optionally {@code archimo.report.outputDir},
+ * {@code archimo.messagingScanConcurrency} (auto, virtual, platform).
  */
 public final class ArchimoReportExtension implements AfterAllCallback {
 
     private static final String PROP_OUTPUT_DIR = "archimo.report.outputDir";
     private static final String PROP_APP_CLASS = "archimo.appClass";
+    private static final String PROP_MESSAGING_SCAN_CONCURRENCY = "archimo.messagingScanConcurrency";
     private static final String DEFAULT_OUTPUT = "target/archimo-docs";
 
     @Override
@@ -28,7 +31,8 @@ public final class ArchimoReportExtension implements AfterAllCallback {
         }
         Path outputDir = resolveOutputDir();
         ApplicationModules modules = ApplicationModules.of(mainClass);
-        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir);
+        MessagingScanConcurrency messagingScan = MessagingScanConcurrency.parseCli(System.getProperty(PROP_MESSAGING_SCAN_CONCURRENCY));
+        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, null, false, messagingScan);
         extractor.extract();
     }
 

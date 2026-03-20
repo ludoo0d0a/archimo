@@ -44,6 +44,8 @@ class MermaidOutputTest {
                 List.of(),   // messagingFlows
                 List.of(),   // bpmnFlows
                 List.of(),   // architectureInfos
+                List.of(),   // openApiSpecFiles
+                List.of(),   // externalHttpClients
                 false        // fullDependencyMode
         );
 
@@ -85,6 +87,8 @@ class MermaidOutputTest {
                         new ArchitectureInfo("com.example.petclinic.OwnerService", "service", "mvc"),
                         new ArchitectureInfo("com.example.petclinic.OwnerRepository", "repository", "mvc")
                 ),
+                List.of(),
+                List.of(),
                 false
         );
 
@@ -159,6 +163,8 @@ class MermaidOutputTest {
                         new ArchitectureInfo("com.example.petclinic.OwnerController", "controller", "mvc"),
                         new ArchitectureInfo("com.example.petclinic.OwnerEntity", "domain", "mvc")
                 ),
+                List.of(),
+                List.of(),
                 true
         );
 

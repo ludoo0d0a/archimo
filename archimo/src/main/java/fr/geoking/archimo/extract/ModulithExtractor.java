@@ -19,7 +19,9 @@ import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.modulith.core.DependencyType;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.BpmnFlow;
+import fr.geoking.archimo.extract.model.ExternalHttpClient;
 import fr.geoking.archimo.extract.model.MessagingFlow;
+import fr.geoking.archimo.extract.model.OpenApiSpecFile;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.springframework.modulith.core.EventType;
@@ -52,21 +54,28 @@ public final class ModulithExtractor {
     private final Path outputDir;
     private final Path projectDir;
     private final boolean fullDependencyMode;
+    private final MessagingScanConcurrency messagingScanConcurrency;
     private final ObjectMapper objectMapper;
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir) {
-        this(modules, outputDir, null, false);
+        this(modules, outputDir, null, false, MessagingScanConcurrency.AUTO);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir) {
-        this(modules, outputDir, projectDir, false);
+        this(modules, outputDir, projectDir, false, MessagingScanConcurrency.AUTO);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode) {
+        this(modules, outputDir, projectDir, fullDependencyMode, MessagingScanConcurrency.AUTO);
+    }
+
+    public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode,
+                             MessagingScanConcurrency messagingScanConcurrency) {
         this.modules = modules;
         this.outputDir = Objects.requireNonNull(outputDir);
         this.projectDir = projectDir;
         this.fullDependencyMode = fullDependencyMode;
+        this.messagingScanConcurrency = messagingScanConcurrency != null ? messagingScanConcurrency : MessagingScanConcurrency.AUTO;
         this.objectMapper = new ObjectMapper()
                 .enable(SerializationFeature.INDENT_OUTPUT);
     }
@@ -87,12 +96,14 @@ public final class ModulithExtractor {
         // 2. BPMN scan on common pool only; ArchUnit graph must not be traversed concurrently
         BpmnScanner bpmnScanner = new BpmnScanner();
         CompletableFuture<List<BpmnFlow>> bpmnFuture = CompletableFuture.supplyAsync(() -> bpmnScanner.scan(projectDir));
+        CompletableFuture<List<OpenApiSpecFile>> openApiFuture = CompletableFuture.supplyAsync(() -> new OpenApiSpecScanner().scan(projectDir));
 
         final List<ArchitectureInfo> architectureInfos;
         final List<ClassDependency> classDependencies;
         final List<EntityRelation> entityRelations;
         final List<EndpointFlow> endpointFlows;
         final List<MessagingFlow> messagingFlows;
+        final List<ExternalHttpClient> externalHttpClients;
         final int classesParsedCount;
 
         if (projectDir != null) {
@@ -105,7 +116,8 @@ public final class ModulithExtractor {
                 architectureInfos = architectureScanner.scan(classes);
                 entityRelations = architectureScanner.scanEntityRelations(classes);
                 endpointFlows = new EndpointScanner().scan(classes);
-                messagingFlows = new MessagingScanner().scan(classes);
+                messagingFlows = new MessagingScanner().scan(classes, messagingScanConcurrency);
+                externalHttpClients = new ExternalHttpClientScanner().scan(classes);
                 classDependencies = architectureScanner.scanClassDependencies(classes, architectureInfos);
             } else {
                 architectureInfos = List.of();
@@ -113,6 +125,7 @@ public final class ModulithExtractor {
                 entityRelations = List.of();
                 endpointFlows = List.of();
                 messagingFlows = List.of();
+                externalHttpClients = List.of();
                 classesParsedCount = 0;
             }
         } else {
@@ -121,17 +134,20 @@ public final class ModulithExtractor {
             entityRelations = List.of();
             endpointFlows = List.of();
             messagingFlows = List.of();
+            externalHttpClients = List.of();
             classesParsedCount = 0;
         }
 
         List<BpmnFlow> bpmnFlows = bpmnFuture.join();
+        List<OpenApiSpecFile> openApiSpecFiles = openApiFuture.join();
         int bpmnFilesParsed = bpmnScanner.getFilesParsed();
 
         System.out.println("Parsed " + classesParsedCount + " classes and " + bpmnFilesParsed + " BPMN files.");
 
         ExtractResult result = new ExtractResult(
                 eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,
-                endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos, fullDependencyMode
+                endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos,
+                openApiSpecFiles, externalHttpClients, fullDependencyMode
         );
 
         // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
@@ -140,7 +156,8 @@ public final class ModulithExtractor {
         }
 
         // 4. Generate static website (architecture-as-code navigation & search)
-        writeSite(eventsMap, flows, endpointFlows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows);
+        writeSite(eventsMap, flows, endpointFlows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows,
+                openApiSpecFiles, externalHttpClients);
 
         // 5. Write JSON artifacts last (use absolute path so output location is unambiguous)
         Path jsonDir = outputDir.toAbsolutePath().resolve("json");
@@ -154,6 +171,8 @@ public final class ModulithExtractor {
         objectMapper.writeValue(jsonDir.resolve("entity-relations.json").toFile(), entityRelations);
         objectMapper.writeValue(jsonDir.resolve("endpoint-flows.json").toFile(), endpointFlows);
         objectMapper.writeValue(jsonDir.resolve("endpoint-sequences.json").toFile(), buildEndpointSequencesIndex(endpointFlows));
+        objectMapper.writeValue(jsonDir.resolve("open-api-specs.json").toFile(), openApiSpecFiles);
+        objectMapper.writeValue(jsonDir.resolve("external-http-clients.json").toFile(), externalHttpClients);
         objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
 
         return result;
@@ -235,7 +254,9 @@ public final class ModulithExtractor {
                            List<ModuleDependency> moduleDependencies,
                            List<ArchitectureInfo> architectureInfos,
                            List<MessagingFlow> messagingFlows,
-                           List<BpmnFlow> bpmnFlows) throws IOException {
+                           List<BpmnFlow> bpmnFlows,
+                           List<OpenApiSpecFile> openApiSpecFiles,
+                           List<ExternalHttpClient> externalHttpClients) throws IOException {
 
         Path siteDir = outputDir.resolve("site");
         Files.createDirectories(siteDir);
@@ -257,6 +278,8 @@ public final class ModulithExtractor {
         List<Map<String, Object>> architectureIndex = new ArrayList<>();
         List<Map<String, Object>> messagingIndex = new ArrayList<>();
         List<Map<String, Object>> bpmnIndex = new ArrayList<>();
+        List<Map<String, Object>> openApiIndex = new ArrayList<>();
+        List<Map<String, Object>> externalHttpIndex = new ArrayList<>();
 
         // Modules and classes
         if (modules != null) {
@@ -336,6 +359,21 @@ public final class ModulithExtractor {
             return bpmn;
         }).toList());
 
+        openApiIndex.addAll(openApiSpecFiles.stream().map(spec -> {
+            Map<String, Object> o = new LinkedHashMap<>();
+            o.put("relativePath", spec.relativePath());
+            o.put("specKind", spec.specKind());
+            return o;
+        }).toList());
+
+        externalHttpIndex.addAll(externalHttpClients.stream().map(c -> {
+            Map<String, Object> h = new LinkedHashMap<>();
+            h.put("clientKind", c.clientKind());
+            h.put("declaringClass", c.declaringClass());
+            h.put("detail", c.detail());
+            return h;
+        }).toList());
+
         // Site index JSON consumed by the SPA
         List<Map<String, Object>> endpointSequencesIndex = buildEndpointSequencesIndex(endpointFlows);
         Map<String, Object> siteIndex = new LinkedHashMap<>();
@@ -350,6 +388,8 @@ public final class ModulithExtractor {
         siteIndex.put("architecture", architectureIndex);
         siteIndex.put("messaging", messagingIndex);
         siteIndex.put("bpmn", bpmnIndex);
+        siteIndex.put("openApiSpecs", openApiIndex);
+        siteIndex.put("externalHttpClients", externalHttpIndex);
 
         objectMapper.writeValue(siteDir.resolve("site-index.json").toFile(), siteIndex);
     }

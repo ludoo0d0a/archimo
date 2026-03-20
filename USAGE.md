@@ -35,6 +35,14 @@ Optional:
 
 - **`--app-class=com.example.YourApplication`** – use if the main class is not declared under `spring-boot-maven-plugin` in `pom.xml`.
 - **`--output-dir=<path>`** – default is `<project-dir>/target/archimo-docs`.
+- **`--messaging-scan-concurrency=auto|virtual|platform`** – controls how **MessagingScanner** parallelizes work over application classes (listeners + template call detection):
+  - **`auto`** (default) – use virtual threads when the JVM supports them (**Java 21+**), otherwise a bounded platform thread pool.
+  - **`virtual`** – same preference as `auto`; on older JDKs without virtual threads, falls back to the platform pool.
+  - **`platform`** – never use virtual threads; always use a bounded platform thread pool (useful for benchmarking or restrictive environments).
+
+Other JVM-related flags (passed to the **child** JVM in project / GitHub mode):
+
+- **`--xmx=<size>`**, **`--xms=<size>`**, **`--xss=<size>`** – heap and stack for the extraction process (see `java -jar … --help` style usage via `ArchimoMain`).
 
 Example in CI (e.g. GitHub Actions):
 
@@ -56,7 +64,8 @@ Use when the project is already built and you want to run with an explicit class
 java -cp "target/classes:target/dependency/*:path/to/archimo-1.0.0-SNAPSHOT-all.jar" \
   fr.geoking.archimo.extract.ArchimoMain \
   --app-class=com.example.YourApplication \
-  --output-dir=./docs
+  --output-dir=./docs \
+  --messaging-scan-concurrency=virtual
 ```
 
 Or with **base package** instead of main class:
@@ -107,9 +116,11 @@ Or configure via **system properties** (no annotation):
 
 - **`archimo.appClass`** – fully qualified main class (e.g. `com.example.MyApplication`).
 - **`archimo.report.outputDir`** – output directory (default: `target/archimo-docs`).
+- **`archimo.messagingScanConcurrency`** – same values as CLI: `auto`, `virtual`, or `platform` (default: `auto`). Applies when you use `ModulithExtractor` with bytecode scanning; the JUnit extension does not set a project directory by default, so class-path scanners may be skipped unless you invoke the extractor with a `projectDir` yourself.
 
 ```bash
 mvn test -Darchimo.appClass=com.example.MyApplication
+mvn test -Darchimo.messagingScanConcurrency=platform
 ```
 
 ### 3.2 Generate report only in CI
@@ -139,11 +150,18 @@ and archive `target/archimo-docs/` as an artifact (or publish the `site/` folder
 You can also call `ModulithExtractor` directly in a test and write to a fixed directory:
 
 ```java
+import fr.geoking.archimo.extract.MessagingScanConcurrency;
+import fr.geoking.archimo.extract.ModulithExtractor;
+import org.springframework.modulith.core.ApplicationModules;
+
 @Test
 void generateArchitectureReport() throws Exception {
     Path outputDir = Path.of("target/archimo-docs");
+    Path projectDir = Path.of("."); // module root: enables ArchUnit scanners (endpoints, messaging, …)
     ApplicationModules modules = ApplicationModules.of(MyApplication.class);
-    ModulithExtractor extractor = new ModulithExtractor(modules, outputDir);
+    ModulithExtractor extractor = new ModulithExtractor(
+            modules, outputDir, projectDir, false,
+            MessagingScanConcurrency.VIRTUAL);
     extractor.extract();
 }
 ```
@@ -245,8 +263,8 @@ Then add a test class with `@ExtendWith(ArchimoReportExtension.class)` and `@Arc
 
 | Use case | Command / setup |
 |----------|------------------|
-| **CLI (another project)** | `java -jar archimo-*-all.jar --project-dir=/path/to/app [--output-dir=...]` |
-| **CLI (classpath)** | `java -cp "..." fr.geoking.archimo.extract.ArchimoMain --app-class=... [--output-dir=...]` |
+| **CLI (another project)** | `java -jar archimo-*-all.jar --project-dir=/path/to/app [--output-dir=...] [--messaging-scan-concurrency=…]` |
+| **CLI (classpath)** | `java -cp "..." fr.geoking.archimo.extract.ArchimoMain --app-class=... [--output-dir=...] [--messaging-scan-concurrency=...]` |
 | **Report from tests** | Add archimo test dependency + `@ExtendWith(ArchimoReportExtension.class)` and `@ArchimoReport(YourApp.class)` |
 | **Report only in CI** | `mvn test -Darchimo.generateReport=true` (and optionally `-Darchimo.appClass=...`) then archive `target/archimo-docs` |
 

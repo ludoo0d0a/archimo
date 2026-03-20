@@ -86,7 +86,7 @@ public final class ArchimoMain {
                 System.exit(1);
             }
 
-            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.module, config.serve, config.verbose, config.logFile, config.xmx, config.xms, config.xss, false);
+            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.module, config.serve, config.verbose, config.logFile, config.xmx, config.xms, config.xss, config.messagingScanConcurrency, false);
             runProjectMode(newConfig);
 
         } catch (Exception e) {
@@ -179,6 +179,9 @@ public final class ArchimoMain {
             }
             if (config.logFile != null) {
                 javaArgs.add("--log-file=" + config.logFile.getAbsolutePath());
+            }
+            if (config.messagingScanConcurrency != MessagingScanConcurrency.AUTO) {
+                javaArgs.add("--messaging-scan-concurrency=" + config.messagingScanConcurrency.name().toLowerCase());
             }
             javaArgs.add("--internal-child");
 
@@ -315,7 +318,7 @@ public final class ArchimoMain {
 
             Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("archimo-docs");
             Path projectDir = config.projectDir != null ? config.projectDir.toPath() : null;
-            ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir, config.fullDependencyMode);
+            ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir, config.fullDependencyMode, config.messagingScanConcurrency);
             ExtractResult result = extractor.extract();
 
             logger.info("Extraction complete. Output: " + outputDir.toAbsolutePath());
@@ -349,7 +352,9 @@ public final class ArchimoMain {
             sb.append("- **Command Flows**: ").append(result.commandFlows().size()).append("\n");
             sb.append("- **Messaging Flows**: ").append(result.messagingFlows().size()).append("\n");
             sb.append("- **BPMN Flows**: ").append(result.bpmnFlows().size()).append("\n");
-            sb.append("- **Architecture Components**: ").append(result.architectureInfos().size()).append("\n\n");
+            sb.append("- **Architecture Components**: ").append(result.architectureInfos().size()).append("\n");
+            sb.append("- **OpenAPI / Swagger files**: ").append(result.openApiSpecFiles().size()).append("\n");
+            sb.append("- **External HTTP client usages**: ").append(result.externalHttpClients().size()).append("\n\n");
 
             String serverUrl = System.getenv("GITHUB_SERVER_URL");
             String repo = System.getenv("GITHUB_REPOSITORY");
@@ -538,9 +543,10 @@ public final class ArchimoMain {
         final String xmx;
         final String xms;
         final String xss;
+        final MessagingScanConcurrency messagingScanConcurrency;
         final boolean internalChild;
 
-        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode, String module, boolean serve, boolean verbose, java.io.File logFile, String xmx, String xms, String xss, boolean internalChild) {
+        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode, String module, boolean serve, boolean verbose, java.io.File logFile, String xmx, String xms, String xss, MessagingScanConcurrency messagingScanConcurrency, boolean internalChild) {
             this.projectDir = projectDir;
             this.appClass = appClass;
             this.basePackage = basePackage;
@@ -555,6 +561,7 @@ public final class ArchimoMain {
             this.xmx = xmx;
             this.xms = xms;
             this.xss = xss;
+            this.messagingScanConcurrency = messagingScanConcurrency != null ? messagingScanConcurrency : MessagingScanConcurrency.AUTO;
             this.internalChild = internalChild;
         }
 
@@ -573,6 +580,7 @@ public final class ArchimoMain {
             String xmx = null;
             String xms = null;
             String xss = null;
+            MessagingScanConcurrency messagingScanConcurrency = MessagingScanConcurrency.AUTO;
             boolean internalChild = false;
             for (String a : args) {
                 if (a.startsWith("--project-dir=")) projectDir = new java.io.File(a.substring("--project-dir=".length()));
@@ -589,11 +597,13 @@ public final class ArchimoMain {
                 else if (a.startsWith("--xmx=")) xmx = a.substring("--xmx=".length()).trim();
                 else if (a.startsWith("--xms=")) xms = a.substring("--xms=".length()).trim();
                 else if (a.startsWith("--xss=")) xss = a.substring("--xss=".length()).trim();
-                else if (a.equals("--internal-child")) internalChild = true;
+                else if (a.startsWith("--messaging-scan-concurrency=")) {
+                    messagingScanConcurrency = MessagingScanConcurrency.parseCli(a.substring("--messaging-scan-concurrency=".length()));
+                } else if (a.equals("--internal-child")) internalChild = true;
             }
             if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow) return null;
             if (projectDir != null && !projectDir.isDirectory()) return null;
-            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, module, serve, verbose, logFile, xmx, xms, xss, internalChild);
+            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, module, serve, verbose, logFile, xmx, xms, xss, messagingScanConcurrency, internalChild);
         }
     }
 

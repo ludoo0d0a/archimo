@@ -39,7 +39,7 @@
         index = await res.json();
       } catch (e) {
         console.error('Failed to load site-index.json', e);
-        index = { diagrams: [], modules: [], classes: [], events: [], endpoints: [], endpointSequences: [], commands: [] };
+        index = { diagrams: [], modules: [], classes: [], events: [], endpoints: [], endpointSequences: [], commands: [], openApiSpecs: [], externalHttpClients: [] };
       }
       if (!index.diagrams) index.diagrams = [];
       if (!index.modules) index.modules = [];
@@ -48,6 +48,8 @@
       if (!index.endpoints) index.endpoints = [];
       if (!index.endpointSequences) index.endpointSequences = [];
       if (!index.commands) index.commands = [];
+      if (!index.openApiSpecs) index.openApiSpecs = [];
+      if (!index.externalHttpClients) index.externalHttpClients = [];
       applyStateFromUrl();
       if (typeof mermaid !== 'undefined') {
         mermaid.initialize({
@@ -746,9 +748,11 @@
     const architectureEl = document.getElementById('architectureResults');
     const messagingEl = document.getElementById('messagingResults');
     const bpmnEl = document.getElementById('bpmnResults');
+    const openApiEl = document.getElementById('openApiResults');
+    const externalHttpEl = document.getElementById('externalHttpResults');
     const summaryEl = document.getElementById('resultsSummary');
 
-    if (!modulesEl || !classesEl || !eventsEl || !endpointsEl || !commandsEl || !architectureEl || !messagingEl || !bpmnEl || !summaryEl || !searchPanel) return;
+    if (!modulesEl || !classesEl || !eventsEl || !endpointsEl || !commandsEl || !architectureEl || !messagingEl || !bpmnEl || !openApiEl || !externalHttpEl || !summaryEl || !searchPanel) return;
 
     if (!term || term.length < 2) {
       searchPanel.classList.remove('active');
@@ -764,6 +768,8 @@
     architectureEl.innerHTML = '';
     messagingEl.innerHTML = '';
     bpmnEl.innerHTML = '';
+    openApiEl.innerHTML = '';
+    externalHttpEl.innerHTML = '';
 
     if (!index) return;
     const q = term.toLowerCase();
@@ -778,8 +784,11 @@
     const architecture = (index.architecture || []).filter(a => match(a.className) || match(a.layer) || match(a.type));
     const messaging = (index.messaging || []).filter(m => match(m.technology) || match(m.destination) || match(m.publisher) || (m.subscribers || []).some(s => match(s)));
     const bpmn = (index.bpmn || []).filter(b => match(b.processId) || match(b.stepName) || match(b.delegate));
+    const openApiSpecs = (index.openApiSpecs || []).filter(s => match(s.relativePath) || match(s.specKind));
+    const extHttp = (index.externalHttpClients || []).filter(h =>
+      match(h.clientKind) || match(h.declaringClass) || match(h.detail));
 
-    summaryEl.textContent = `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${endpoints.length} endpoints, ${commands.length} commands, ${architecture.length} arch, ${messaging.length} msg, ${bpmn.length} bpmn for "${term}"`;
+    summaryEl.textContent = `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${endpoints.length} endpoints, ${commands.length} commands, ${architecture.length} arch, ${messaging.length} msg, ${bpmn.length} bpmn, ${openApiSpecs.length} OpenAPI, ${extHttp.length} HTTP clients for "${term}"`;
 
     modules.forEach(m => {
       const li = document.createElement('li');
@@ -834,6 +843,16 @@
       const li = document.createElement('li');
       li.textContent = `${b.processId} : ${b.stepName} (delegate: ${b.delegate})`;
       bpmnEl.appendChild(li);
+    });
+    openApiSpecs.forEach(s => {
+      const li = document.createElement('li');
+      li.textContent = `[${s.specKind}] ${s.relativePath}`;
+      openApiEl.appendChild(li);
+    });
+    extHttp.forEach(h => {
+      const li = document.createElement('li');
+      li.textContent = `[${h.clientKind}] ${h.declaringClass} — ${h.detail}`;
+      externalHttpEl.appendChild(li);
     });
   }
 

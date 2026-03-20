@@ -2,12 +2,15 @@ package fr.geoking.archimo.report;
 
 import fr.geoking.archimo.extract.MessagingScanConcurrency;
 import fr.geoking.archimo.extract.ModulithExtractor;
+import fr.geoking.archimo.extract.output.OutputFormat;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.springframework.modulith.core.ApplicationModules;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.EnumSet;
+import java.util.Set;
 
 /**
  * JUnit 5 extension that runs the Modulith extractor after all tests in the class,
@@ -32,7 +35,9 @@ public final class ArchimoReportExtension implements AfterAllCallback {
         Path outputDir = resolveOutputDir();
         ApplicationModules modules = ApplicationModules.of(mainClass);
         MessagingScanConcurrency messagingScan = MessagingScanConcurrency.parseCli(System.getProperty(PROP_MESSAGING_SCAN_CONCURRENCY));
-        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, null, false, messagingScan, mainClass.getName());
+        Set<OutputFormat> formats = EnumSet.copyOf(OutputFormat.DEFAULT_DIAGRAM_FORMATS);
+        formats.add(OutputFormat.JSON);
+        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, null, false, messagingScan, mainClass.getName(), formats);
         extractor.extract();
     }
 

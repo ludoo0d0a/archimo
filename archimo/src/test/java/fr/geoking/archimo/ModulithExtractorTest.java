@@ -1,7 +1,9 @@
 package fr.geoking.archimo;
 
+import fr.geoking.archimo.extract.MessagingScanConcurrency;
 import fr.geoking.archimo.extract.ModulithExtractor;
 import fr.geoking.archimo.extract.model.EventFlow;
+import fr.geoking.archimo.extract.output.OutputFormat;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -17,6 +19,7 @@ import org.springframework.modulith.core.ApplicationModules;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -122,6 +125,14 @@ class ModulithExtractorTest {
 
         // Commands = event types whose name contains "Command"; sample has no such published events
         assertThat(result.commandFlows()).isNotNull();
+    }
+
+    @Test
+    void outputFormatJson_writesArchitectureJson() throws Exception {
+        ModulithExtractor extractor = new ModulithExtractor(null, outputDir, null, false,
+                MessagingScanConcurrency.AUTO, null, EnumSet.of(OutputFormat.JSON));
+        extractor.extract();
+        assertThat(outputDir.resolve("architecture.json")).exists();
     }
 
     @Test

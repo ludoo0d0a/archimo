@@ -1,5 +1,6 @@
 package fr.geoking.archimo.extract.model.report;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
@@ -11,6 +12,7 @@ import java.util.Optional;
  * {@code site-index.json} consume this structure before / alongside generated files.
  */
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record C4ReportTree(
         String applicationShortName,
         String applicationMainClassFqcn,

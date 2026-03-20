@@ -12,6 +12,7 @@ import fr.geoking.archimo.model.ModuleEvents;
 import fr.geoking.archimo.extract.model.SequenceFlow;
 import fr.geoking.archimo.extract.output.DiagramOutput;
 import fr.geoking.archimo.extract.output.DiagramOutputFactory;
+import fr.geoking.archimo.extract.output.OutputFormat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.springframework.modulith.core.ApplicationModule;
@@ -37,12 +38,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -64,27 +67,35 @@ public final class ModulithExtractor {
     private final MessagingScanConcurrency messagingScanConcurrency;
     /** Optional FQCN from CLI/tests; otherwise resolved from bytecode or project layout. */
     private final String applicationMainClassOverride;
+    /** When null or empty, {@link OutputFormat#DEFAULT_DIAGRAM_FORMATS} is used. */
+    private final Set<OutputFormat> outputFormats;
     private final ObjectMapper objectMapper;
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir) {
-        this(modules, outputDir, null, false, MessagingScanConcurrency.AUTO, null);
+        this(modules, outputDir, null, false, MessagingScanConcurrency.AUTO, null, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir) {
-        this(modules, outputDir, projectDir, false, MessagingScanConcurrency.AUTO, null);
+        this(modules, outputDir, projectDir, false, MessagingScanConcurrency.AUTO, null, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode) {
-        this(modules, outputDir, projectDir, fullDependencyMode, MessagingScanConcurrency.AUTO, null);
+        this(modules, outputDir, projectDir, fullDependencyMode, MessagingScanConcurrency.AUTO, null, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode,
                              MessagingScanConcurrency messagingScanConcurrency) {
-        this(modules, outputDir, projectDir, fullDependencyMode, messagingScanConcurrency, null);
+        this(modules, outputDir, projectDir, fullDependencyMode, messagingScanConcurrency, null, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode,
                              MessagingScanConcurrency messagingScanConcurrency, String applicationMainClassOverride) {
+        this(modules, outputDir, projectDir, fullDependencyMode, messagingScanConcurrency, applicationMainClassOverride, null);
+    }
+
+    public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode,
+                             MessagingScanConcurrency messagingScanConcurrency, String applicationMainClassOverride,
+                             Set<OutputFormat> outputFormats) {
         this.modules = modules;
         this.outputDir = Objects.requireNonNull(outputDir);
         this.projectDir = projectDir;
@@ -93,6 +104,9 @@ public final class ModulithExtractor {
         this.applicationMainClassOverride = applicationMainClassOverride != null && !applicationMainClassOverride.isBlank()
                 ? applicationMainClassOverride.trim()
                 : null;
+        this.outputFormats = (outputFormats == null || outputFormats.isEmpty())
+                ? EnumSet.copyOf(OutputFormat.DEFAULT_DIAGRAM_FORMATS)
+                : EnumSet.copyOf(outputFormats);
         this.objectMapper = new ObjectMapper()
                 .enable(SerializationFeature.INDENT_OUTPUT);
     }
@@ -186,10 +200,23 @@ public final class ModulithExtractor {
                 frameworkInsights
         );
 
-        c4ReportTree = C4ReportTreeBuilder.build(modules, result);
+        C4ReportTree scannedTree = C4ReportTreeBuilder.build(modules, result);
+        Optional<C4ReportTree> manifest = Optional.empty();
+        if (projectDir != null) {
+            try {
+                manifest = ArchimoManifestLoader.loadIfPresent(projectDir);
+                if (manifest.isPresent()) {
+                    System.out.println("Loaded architecture manifest: "
+                            + projectDir.resolve(ArchimoManifestLoader.MANIFEST_FILE_NAME).toAbsolutePath());
+                }
+            } catch (IOException e) {
+                System.err.println("WARN: could not read archimo.mf: " + e.getMessage());
+            }
+        }
+        c4ReportTree = C4ReportTreeMerger.merge(manifest.orElse(null), scannedTree, w -> System.err.println("WARN: " + w));
 
         // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
-        for (DiagramOutput output : DiagramOutputFactory.defaultOutputs()) {
+        for (DiagramOutput output : DiagramOutputFactory.create(outputFormats)) {
             output.write(modules, outputDir, result, c4ReportTree);
         }
 

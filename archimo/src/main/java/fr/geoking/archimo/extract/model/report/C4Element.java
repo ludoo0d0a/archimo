@@ -1,5 +1,6 @@
 package fr.geoking.archimo.extract.model.report;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.Map;
  * {@code attributes} hold parser-specific refs (e.g. {@code fqcn}, {@code moduleName}).
  */
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record C4Element(
         String id,
         C4ElementKind kind,

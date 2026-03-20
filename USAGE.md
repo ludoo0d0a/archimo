@@ -7,7 +7,7 @@ Archimo extracts **C4 (PlantUML)**, **Mermaid** diagrams and a **static website 
 ## 1. Build
 
 ```bash
-mvn package
+mvn package -DskipTests
 ```
 
 Produces:

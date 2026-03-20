@@ -110,6 +110,50 @@ class InfrastructureScannerTest {
     }
 
     @Test
+    void scan_rootLevelKubernetesYaml_composeOverride_andConfigMapData() throws Exception {
+        Files.writeString(projectDir.resolve("redis.yaml"), """
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: redis
+                spec:
+                  ports:
+                    - port: 6379
+                """);
+
+        Files.writeString(projectDir.resolve("docker-compose.override.yml"), """
+                services:
+                  cache:
+                    image: redis:7-alpine
+                """);
+
+        Path k8s = projectDir.resolve("k8s");
+        Files.createDirectories(k8s);
+        Files.writeString(k8s.resolve("app-config.yaml"), """
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  name: app
+                data:
+                  app.properties: |
+                    kafka.bootstrap.servers=my-kafka:9092
+                    spring.datasource.url=jdbc:mysql://db:3306/app
+                """);
+
+        InfrastructureTopology topo = new InfrastructureScanner().scan(projectDir);
+
+        assertThat(topo.files()).anyMatch(f -> "redis.yaml".equals(f.relativePath()) && "KUBERNETES".equals(f.kind()));
+        assertThat(topo.files()).anyMatch(f -> "docker-compose.override.yml".equals(f.relativePath()));
+        assertThat(topo.kubernetesServices()).anyMatch(s -> "redis".equals(s.name()));
+        assertThat(topo.containers()).anyMatch(c -> "cache".equals(c.name()) && c.image().contains("redis"));
+        assertThat(topo.externalSystems()).anyMatch(h -> "MESSAGE_BUS_KAFKA".equals(h.category()));
+        assertThat(topo.externalSystems()).anyMatch(h ->
+                "DATABASE".equals(h.category())
+                        && "MySQL/MariaDB".equals(h.label())
+                        && h.evidence().contains("spring.datasource.url"));
+    }
+
+    @Test
     void scan_dockerfileFromImageHints() throws Exception {
         Files.writeString(projectDir.resolve("Dockerfile"), """
                 FROM amazoncorretto:21-alpine

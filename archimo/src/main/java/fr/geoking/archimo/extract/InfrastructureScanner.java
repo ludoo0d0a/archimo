@@ -12,6 +12,7 @@ import org.yaml.snakeyaml.Yaml;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -21,7 +22,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -45,6 +45,7 @@ public final class InfrastructureScanner {
         if (projectRoot == null || !Files.isDirectory(projectRoot)) {
             return InfrastructureTopology.empty();
         }
+        projectRoot = projectRoot.toAbsolutePath().normalize();
         files.clear();
         containers.clear();
         k8sServices.clear();
@@ -111,7 +112,7 @@ public final class InfrastructureScanner {
             parseCompose(file, rel);
             return;
         }
-        if (isKubernetesCandidate(file, lower)) {
+        if (isKubernetesCandidate(root, file, lower)) {
             parseKubernetesManifest(file, rel);
         }
     }
@@ -119,17 +120,27 @@ public final class InfrastructureScanner {
     private static boolean isComposeFile(String lowerName) {
         return lowerName.equals("docker-compose.yml")
                 || lowerName.equals("docker-compose.yaml")
+                || lowerName.equals("docker-compose.override.yml")
+                || lowerName.equals("docker-compose.override.yaml")
                 || lowerName.equals("compose.yml")
-                || lowerName.equals("compose.yaml");
+                || lowerName.equals("compose.yaml")
+                || lowerName.equals("compose.override.yml")
+                || lowerName.equals("compose.override.yaml");
     }
 
-    private static boolean isKubernetesCandidate(Path file, String lowerName) {
+    /**
+     * True when the file looks like a Kubernetes manifest (directory convention or root-level apiVersion/kind).
+     */
+    private static boolean isKubernetesCandidate(Path root, Path file, String lowerName) {
         if (!lowerName.endsWith(".yml") && !lowerName.endsWith(".yaml")) {
             return false;
         }
         Path parent = file.getParent();
         if (parent == null) {
             return false;
+        }
+        if (parent.normalize().equals(root) && kubernetesYamlQuickSniff(file)) {
+            return true;
         }
         String dir = parent.getFileName().toString().toLowerCase(Locale.ROOT);
         Path full = file.toAbsolutePath().normalize();
@@ -146,6 +157,33 @@ public final class InfrastructureScanner {
                 || fullStr.contains("/kubernetes/")
                 || fullStr.contains("/deploy/")
                 || fullStr.contains("/helm/");
+    }
+
+    /**
+     * Reads the start of a file to see if it declares {@code apiVersion} and {@code kind} (avoids parsing
+     * unrelated root YAML such as CI configs). Skips obvious Helm templates.
+     */
+    private static boolean kubernetesYamlQuickSniff(Path file) {
+        try {
+            long len = Math.min(Files.size(file), 48_000);
+            if (len <= 0) {
+                return false;
+            }
+            byte[] buf = new byte[(int) len];
+            try (var in = Files.newInputStream(file)) {
+                int read = in.readNBytes(buf, 0, buf.length);
+                if (read <= 0) {
+                    return false;
+                }
+                String head = new String(buf, 0, read, StandardCharsets.UTF_8);
+                if (head.contains("{{") && head.contains("}}")) {
+                    return false;
+                }
+                return head.contains("apiVersion:") && head.contains("kind:");
+            }
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private void parseDockerfile(Path file, String rel) throws IOException {
@@ -281,6 +319,8 @@ public final class InfrastructureScanner {
                     case "Pod" -> parsePod(m, rel);
                     case "Service" -> parseService(m, rel);
                     case "Ingress" -> parseIngress(m, rel);
+                    case "ConfigMap" -> parseConfigMap(m, rel);
+                    case "Secret" -> parseSecret(m, rel);
                     default -> { }
                 }
             }
@@ -446,6 +486,95 @@ public final class InfrastructureScanner {
             addHint("REVERSE_PROXY", "Traefik", evidence, rel);
         } else if (!hosts.isEmpty()) {
             addHint("HTTP_GATEWAY", "Ingress", evidence + "; hosts: " + String.join(", ", hosts), rel);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void parseConfigMap(Map<String, Object> doc, String rel) {
+        scanKubernetesDataEntries(asMap(doc.get("data")), rel, false);
+        scanKubernetesDataEntries(decodeBinaryDataEntries(asMap(doc.get("binaryData"))), rel, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void parseSecret(Map<String, Object> doc, String rel) {
+        scanKubernetesDataEntries(asMap(doc.get("stringData")), rel, false);
+        scanKubernetesDataEntries(asMap(doc.get("data")), rel, true);
+    }
+
+    /**
+     * @param base64Values when true (Secret {@code data}), values are Base64-decoded when they look like UTF-8 text.
+     */
+    private void scanKubernetesDataEntries(Map<String, Object> data, String rel, boolean base64Values) {
+        if (data == null || data.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Object> e : data.entrySet()) {
+            Object v = e.getValue();
+            if (!(v instanceof String s)) {
+                continue;
+            }
+            String payload = base64Values ? tryDecodeBase64Utf8(s) : s;
+            if (payload != null && !payload.isBlank()) {
+                scanTextBlobForHints(payload, rel);
+            }
+        }
+    }
+
+    private static String tryDecodeBase64Utf8(String encoded) {
+        if (encoded == null || encoded.isBlank()) {
+            return null;
+        }
+        try {
+            byte[] raw = Base64.getDecoder().decode(encoded.replaceAll("\\s", ""));
+            if (raw.length > 256_000) {
+                return null;
+            }
+            String decoded = new String(raw, StandardCharsets.UTF_8);
+            // Heuristic: skip binary blobs (too many control chars)
+            int controls = 0;
+            for (int i = 0; i < Math.min(decoded.length(), 512); i++) {
+                char c = decoded.charAt(i);
+                if (c < 0x20 && c != '\n' && c != '\r' && c != '\t') {
+                    controls++;
+                }
+            }
+            if (controls > 8) {
+                return null;
+            }
+            return decoded;
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private static Map<String, Object> decodeBinaryDataEntries(Map<String, Object> binaryData) {
+        if (binaryData == null || binaryData.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> e : binaryData.entrySet()) {
+            if (e.getValue() instanceof String s) {
+                String decoded = tryDecodeBase64Utf8(s);
+                if (decoded != null) {
+                    out.put(e.getKey(), decoded);
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Scans multi-line config (properties, YAML snippets, shell) for the same patterns as container env.
+     */
+    private void scanTextBlobForHints(String text, String rel) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        for (String line : text.split("\\R")) {
+            String t = line.trim();
+            if (!t.isEmpty() && !t.startsWith("#")) {
+                scanEnvLineForHints(t, rel);
+            }
         }
     }
 

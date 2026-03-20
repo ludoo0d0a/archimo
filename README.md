@@ -19,7 +19,7 @@ mvn package -DskipTests
 java -jar target/archimo-1.0.0-SNAPSHOT-all.jar --project-dir=/path/to/your/modulith-app --output-dir=./docs
 ```
 
-More CLI options (heap, **`--messaging-scan-concurrency`** for MessagingScanner threading, …): **[USAGE.md](USAGE.md)**.
+More CLI options (heap, **`--messaging-scan-concurrency`** for MessagingScanner threading, **`-o` / `--output-format`**, …): **[USAGE.md](USAGE.md)**. Optional project manifest (**`archimo.mf`**) for people, externals, and other C4 nodes: **[docs/ARCHIMO_MANIFEST.md](docs/ARCHIMO_MANIFEST.md)**.
 
 Or, from any directory, **download and run the latest `archimo.jar` from GitHub** in one line:
 

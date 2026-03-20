@@ -73,6 +73,9 @@ public final class ModulithExtractor {
     public ExtractResult extract() throws IOException {
         Files.createDirectories(outputDir);
 
+        int classesParsed = 0;
+        int bpmnFilesParsed = 0;
+
         // 1. Core extraction
         List<ModuleEvents> eventsMap = modules != null ? buildEventsMap() : List.of();
         List<EventFlow> flows = modules != null ? buildEventFlows() : List.of();
@@ -90,6 +93,7 @@ public final class ModulithExtractor {
             Path classesPath = findClassesPath(projectDir);
             if (classesPath != null && Files.isDirectory(classesPath)) {
                 JavaClasses classes = new ClassFileImporter().importPath(classesPath);
+                classesParsed = classes.size();
                 ArchitectureScanner architectureScanner = new ArchitectureScanner();
                 architectureInfos = architectureScanner.scan(classes);
                 classDependencies = architectureScanner.scanClassDependencies(classes, architectureInfos);
@@ -98,7 +102,11 @@ public final class ModulithExtractor {
                 messagingFlows = new MessagingScanner().scan(classes);
             }
         }
-        List<BpmnFlow> bpmnFlows = new BpmnScanner().scan(projectDir);
+        BpmnScanner bpmnScanner = new BpmnScanner();
+        List<BpmnFlow> bpmnFlows = bpmnScanner.scan(projectDir);
+        bpmnFilesParsed = bpmnScanner.getFilesParsed();
+
+        System.out.println("Parsed " + classesParsed + " classes and " + bpmnFilesParsed + " BPMN files.");
 
         ExtractResult result = new ExtractResult(
                 eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,

@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 /**
  * CLI entry point for the Archimo Modulith Extractor.
  */
-public final class ModulithExtractorMain {
+public final class ArchimoMain {
 
     private static Logger logger = new Logger(false, null);
 
@@ -34,6 +34,9 @@ public final class ModulithExtractorMain {
         }
 
         logger = new Logger(config.verbose, config.logFile);
+
+        String version = ArchimoMain.class.getPackage().getImplementationVersion();
+        logger.info("Archimo " + (version != null ? version : "development"));
 
         if (config.githubUrl != null) {
             runGithubMode(config);
@@ -95,12 +98,13 @@ public final class ModulithExtractorMain {
         Path outDir = null;
         try {
             Path projectDir = config.projectDir.toPath();
+            logger.info("Project: " + projectDir.toAbsolutePath());
             String appClass = config.appClass;
             if (appClass == null) {
                 appClass = discoverMainClass(projectDir);
                 if (appClass == null) {
                     // Try monorepo discovery
-                    logger.info("Main class not found in root. Searching in sub-modules...");
+                    logger.debug("Main class not found in root. Searching in sub-modules...");
                     try (var stream = Files.list(projectDir)) {
                         List<Path> subDirs = stream.filter(Files::isDirectory).toList();
                         if (config.module != null) {
@@ -109,7 +113,7 @@ public final class ModulithExtractorMain {
                                 appClass = discoverMainClass(moduleDir);
                                 if (appClass != null) {
                                     projectDir = moduleDir;
-                                    logger.info("Found in module '" + config.module + "': " + appClass);
+                                    logger.info("Module: " + config.module);
                                 }
                             }
                         } else {
@@ -118,7 +122,7 @@ public final class ModulithExtractorMain {
                                     appClass = discoverMainClass(subDir);
                                     if (appClass != null) {
                                         projectDir = subDir;
-                                        logger.info("Auto-discovered in module '" + subDir.getFileName() + "': " + appClass);
+                                        logger.info("Module: " + subDir.getFileName());
                                         break;
                                     }
                                 }
@@ -130,7 +134,7 @@ public final class ModulithExtractorMain {
                     logger.error("Could not discover main application class. Use --app-class=fully.qualified.MainClass or --module=<name>");
                     System.exit(1);
                 }
-                logger.info("Discovered application class: " + appClass);
+                logger.debug("Discovered application class: " + appClass);
             }
 
             Path target = projectDir.resolve("target");
@@ -162,7 +166,7 @@ public final class ModulithExtractorMain {
             List<String> javaArgs = new ArrayList<>();
             javaArgs.add("-cp");
             javaArgs.add(cp);
-            javaArgs.add(ModulithExtractorMain.class.getName());
+            javaArgs.add(ArchimoMain.class.getName());
             javaArgs.add("--app-class=" + appClass);
             javaArgs.add("--output-dir=" + outDirStr);
             javaArgs.add("--project-dir=" + config.projectDir.getAbsolutePath());
@@ -201,7 +205,7 @@ public final class ModulithExtractorMain {
     }
 
     private static String getCurrentJarPath() {
-        String path = ModulithExtractorMain.class.getProtectionDomain().getCodeSource().getLocation().getPath();
+        String path = ArchimoMain.class.getProtectionDomain().getCodeSource().getLocation().getPath();
         if (path != null && path.endsWith(".jar")) return path;
         return path;
     }
@@ -300,7 +304,7 @@ public final class ModulithExtractorMain {
                     modules = ApplicationModules.of(app);
                 }
             } catch (Exception e) {
-                logger.info("Could not initialize Spring Modulith modules (ignoring if not a Modulith project): " + e.getMessage());
+                logger.debug("Could not initialize Spring Modulith modules (ignoring if not a Modulith project): " + e.getMessage());
             }
 
             Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("archimo-docs");
@@ -309,10 +313,10 @@ public final class ModulithExtractorMain {
             ExtractResult result = extractor.extract();
 
             logger.info("Extraction complete. Output: " + outputDir.toAbsolutePath());
-            logger.info("  - C4/PlantUML: " + outputDir.resolve("*.puml"));
-            logger.info("  - Module canvases: " + outputDir.resolve("*.adoc"));
-            logger.info("  - Events map & flows: " + outputDir.resolve("json"));
-            logger.info("  - Mermaid: " + outputDir.resolve("mermaid"));
+            logger.debug("  - C4/PlantUML: " + outputDir.resolve("*.puml"));
+            logger.debug("  - Module canvases: " + outputDir.resolve("*.adoc"));
+            logger.debug("  - Events map & flows: " + outputDir.resolve("json"));
+            logger.debug("  - Mermaid: " + outputDir.resolve("mermaid"));
 
             writeGitHubSummary(result, outputDir);
             if (config.serve) {
@@ -496,8 +500,8 @@ public final class ModulithExtractorMain {
     private static void printUsage() {
         System.err.println("Usage:");
         System.err.println("  Classpath mode (run with project + deps on classpath):");
-        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ModulithExtractorMain --app-class=<fqcn> [--output-dir=<path>] [-v]");
-        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ModulithExtractorMain --base-package=<package> [--output-dir=<path>] [-v]");
+        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ArchimoMain --app-class=<fqcn> [--output-dir=<path>] [-v]");
+        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ArchimoMain --base-package=<package> [--output-dir=<path>] [-v]");
         System.err.println("  Project mode (builds with Maven then extracts):");
         System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve] [-v] [--xmx=1g]");
         System.err.println("  GitHub mode (clones repo, builds with Maven then extracts):");
@@ -593,7 +597,15 @@ public final class ModulithExtractorMain {
         }
 
         void info(String msg) {
-            log("INFO: " + msg);
+            System.out.println(msg);
+            logToDisk("INFO: " + msg);
+        }
+
+        void debug(String msg) {
+            if (verbose) {
+                System.out.println(msg);
+            }
+            logToDisk("DEBUG: " + msg);
         }
 
         void error(String msg) {
@@ -610,13 +622,6 @@ public final class ModulithExtractorMain {
                     t.printStackTrace(pw);
                 } catch (IOException ignored) {}
             }
-        }
-
-        private void log(String msg) {
-            if (verbose) {
-                System.out.println(msg);
-            }
-            logToDisk(msg);
         }
 
         private void logToDisk(String msg) {

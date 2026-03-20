@@ -35,6 +35,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * Extracts C4 diagrams (PlantUML), event map, flows and sequences from a Spring Modulith ApplicationModules model.
@@ -128,17 +131,16 @@ public final class ModulithExtractor {
     }
 
     private List<ModuleEvents> buildEventsMap() {
-        List<ModuleEvents> list = new ArrayList<>();
-        for (ApplicationModule module : modules) {
-            String name = module.getDisplayName();
-            String basePackage = module.getBasePackage().getName();
-            List<String> published = module.getPublishedEvents().stream()
-                    .map(this::eventTypeName)
-                    .toList();
-            List<String> listened = toEventTypeNames(module.getEventsListenedTo(modules));
-            list.add(new ModuleEvents(name, basePackage, published, listened));
-        }
-        return list;
+        return StreamSupport.stream(modules.spliterator(), false)
+                .map(module -> new ModuleEvents(
+                        module.getDisplayName(),
+                        module.getBasePackage().getName(),
+                        module.getPublishedEvents().stream()
+                                .map(this::eventTypeName)
+                                .toList(),
+                        toEventTypeNames(module.getEventsListenedTo(modules))
+                ))
+                .toList();
     }
 
     private List<EventFlow> buildEventFlows() {
@@ -171,36 +173,26 @@ public final class ModulithExtractor {
     }
 
     private List<ModuleDependency> buildModuleDependencies() {
-        List<ModuleDependency> list = new ArrayList<>();
-        for (ApplicationModule module : modules) {
-            var deps = module.getDirectDependencies(modules,
-                    // DEFAULT captures module-level relationships that aren't specifically
-                    // "uses component / entity / event listener" in Petclinic and other samples.
-                    DependencyType.DEFAULT,
-                    DependencyType.USES_COMPONENT,
-                    DependencyType.ENTITY,
-                    DependencyType.EVENT_LISTENER);
-            deps.stream()
-                    .map(ApplicationModuleDependency::getTargetModule)
-                    .map(ApplicationModule::getDisplayName)
-                    .forEach(target -> list.add(new ModuleDependency(module.getDisplayName(), target)));
-        }
-        return list;
+        return StreamSupport.stream(modules.spliterator(), false)
+                .flatMap(module -> module.getDirectDependencies(modules,
+                                DependencyType.DEFAULT,
+                                DependencyType.USES_COMPONENT,
+                                DependencyType.ENTITY,
+                                DependencyType.EVENT_LISTENER)
+                        .stream()
+                        .map(dep -> new ModuleDependency(module.getDisplayName(), dep.getTargetModule().getDisplayName())))
+                .toList();
     }
 
     /** Commands = event flows whose event type name contains "Command". */
     private List<CommandFlow> buildCommandFlowsFromEventFlows(List<EventFlow> flows) {
-        List<CommandFlow> list = new ArrayList<>();
-        for (EventFlow f : flows) {
-            if (!f.eventType().contains("Command")) {
-                continue;
-            }
-            String target = f.listenerModules().isEmpty()
-                    ? f.publisherModule()
-                    : f.listenerModules().get(0);
-            list.add(new CommandFlow(f.eventType(), target));
-        }
-        return list;
+        return flows.stream()
+                .filter(f -> f.eventType().contains("Command"))
+                .map(f -> new CommandFlow(
+                        f.eventType(),
+                        f.listenerModules().isEmpty() ? f.publisherModule() : f.listenerModules().get(0)
+                ))
+                .toList();
     }
 
     /**
@@ -238,85 +230,82 @@ public final class ModulithExtractor {
         List<Map<String, Object>> bpmnIndex = new ArrayList<>();
 
         // Modules and classes
-        if (modules != null)
-        for (ApplicationModule module : modules) {
-            String moduleName = module.getDisplayName();
-            String basePackage = module.getBasePackage().getName();
+        if (modules != null) {
+            StreamSupport.stream(modules.spliterator(), false).forEach(module -> {
+                String moduleName = module.getDisplayName();
+                Map<String, Object> moduleEntry = new LinkedHashMap<>();
+                moduleEntry.put("name", moduleName);
+                moduleEntry.put("basePackage", module.getBasePackage().getName());
+                modulesIndex.add(moduleEntry);
 
-            Map<String, Object> moduleEntry = new LinkedHashMap<>();
-            moduleEntry.put("name", moduleName);
-            moduleEntry.put("basePackage", basePackage);
-            modulesIndex.add(moduleEntry);
-
-            // Spring beans (components) – these are the primary "classes" users care about
-            for (Object bean : module.getSpringBeans()) {
-                String className = extractSpringBeanTypeName(bean);
-                if (className == null) {
-                    continue;
-                }
-                Map<String, Object> cls = new LinkedHashMap<>();
-                cls.put("className", className);
-                cls.put("kind", "bean");
-                cls.put("module", moduleName);
-                classesIndex.add(cls);
-            }
+                module.getSpringBeans().stream()
+                        .map(this::extractSpringBeanTypeName)
+                        .filter(Objects::nonNull)
+                        .forEach(className -> {
+                            Map<String, Object> cls = new LinkedHashMap<>();
+                            cls.put("className", className);
+                            cls.put("kind", "bean");
+                            cls.put("module", moduleName);
+                            classesIndex.add(cls);
+                        });
+            });
         }
 
         // Events (from flows so we get publisher + listeners)
-        for (EventFlow flow : flows) {
+        eventsIndex.addAll(flows.stream().map(flow -> {
             Map<String, Object> ev = new LinkedHashMap<>();
             ev.put("eventType", flow.eventType());
             ev.put("publisherModule", flow.publisherModule());
             ev.put("listenerModules", flow.listenerModules());
-            eventsIndex.add(ev);
-        }
+            return ev;
+        }).toList());
 
         // Commands (command type -> target module)
-        for (CommandFlow cf : commandFlows) {
+        commandsIndex.addAll(commandFlows.stream().map(cf -> {
             Map<String, Object> cmd = new LinkedHashMap<>();
             cmd.put("commandType", cf.commandType());
             cmd.put("targetModule", cf.targetModule());
-            commandsIndex.add(cmd);
-        }
+            return cmd;
+        }).toList());
 
         // Endpoints
-        for (EndpointFlow endpointFlow : endpointFlows) {
+        endpointsIndex.addAll(endpointFlows.stream().map(ef -> {
             Map<String, Object> endpoint = new LinkedHashMap<>();
-            endpoint.put("httpMethod", endpointFlow.httpMethod());
-            endpoint.put("path", endpointFlow.path());
-            endpoint.put("controllerClass", endpointFlow.controllerClass());
-            endpoint.put("controllerMethod", endpointFlow.controllerMethod());
-            endpointsIndex.add(endpoint);
-        }
+            endpoint.put("httpMethod", ef.httpMethod());
+            endpoint.put("path", ef.path());
+            endpoint.put("controllerClass", ef.controllerClass());
+            endpoint.put("controllerMethod", ef.controllerMethod());
+            return endpoint;
+        }).toList());
 
         // Architecture
-        for (ArchitectureInfo info : architectureInfos) {
+        architectureIndex.addAll(architectureInfos.stream().map(info -> {
             Map<String, Object> arch = new LinkedHashMap<>();
             arch.put("className", info.className());
             arch.put("layer", info.layer());
             arch.put("type", info.architectureType());
-            architectureIndex.add(arch);
-        }
+            return arch;
+        }).toList());
 
         // Messaging
-        for (MessagingFlow mf : messagingFlows) {
+        messagingIndex.addAll(messagingFlows.stream().map(mf -> {
             Map<String, Object> msg = new LinkedHashMap<>();
             msg.put("technology", mf.technology());
             msg.put("destination", mf.destination());
             msg.put("publisher", mf.publisher());
             msg.put("subscribers", mf.subscribers());
-            messagingIndex.add(msg);
-        }
+            return msg;
+        }).toList());
 
         // BPMN
-        for (BpmnFlow bf : bpmnFlows) {
+        bpmnIndex.addAll(bpmnFlows.stream().map(bf -> {
             Map<String, Object> bpmn = new LinkedHashMap<>();
             bpmn.put("engine", bf.engine());
             bpmn.put("processId", bf.processId());
             bpmn.put("stepName", bf.stepName());
             bpmn.put("delegate", bf.delegateBean());
-            bpmnIndex.add(bpmn);
-        }
+            return bpmn;
+        }).toList());
 
         // Site index JSON consumed by the SPA
         List<Map<String, Object>> endpointSequencesIndex = buildEndpointSequencesIndex(endpointFlows);
@@ -337,8 +326,7 @@ public final class ModulithExtractor {
     }
 
     private List<Map<String, Object>> buildEndpointSequencesIndex(List<EndpointFlow> endpointFlows) {
-        List<Map<String, Object>> index = new ArrayList<>();
-        for (EndpointFlow endpoint : endpointFlows) {
+        return endpointFlows.stream().map(endpoint -> {
             String slug = sanitizeForFilename(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod());
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("httpMethod", endpoint.httpMethod());
@@ -347,9 +335,8 @@ public final class ModulithExtractor {
             entry.put("controllerMethod", endpoint.controllerMethod());
             entry.put("plantumlPath", "endpoint-sequence-" + slug + ".puml");
             entry.put("mermaidPath", "mermaid/endpoint-sequence-" + slug + ".mmd");
-            index.add(entry);
-        }
-        return index;
+            return entry;
+        }).toList();
     }
 
     private String sanitizeForFilename(String value) {
@@ -635,4 +622,3 @@ public final class ModulithExtractor {
         return null;
     }
 }
-

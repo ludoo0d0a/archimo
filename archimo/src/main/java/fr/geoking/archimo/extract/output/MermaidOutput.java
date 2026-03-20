@@ -12,12 +12,15 @@ import fr.geoking.archimo.extract.model.ModuleDependency;
 import org.springframework.modulith.core.ApplicationModules;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Writes Mermaid diagrams for event flows, sequences and module dependencies.
@@ -49,107 +52,98 @@ public final class MermaidOutput implements DiagramOutput {
     private void writeMermaidEventAndCommandFlows(Path outputDir, List<EventFlow> flows) throws IOException {
         Path mermaidDir = outputDir.resolve("mermaid");
         Files.createDirectories(mermaidDir);
-        StringBuilder m = new StringBuilder();
-        m.append("%% Events and commands (command = name contains 'Command'); different color and shape\n");
-        m.append("flowchart LR\n");
-        if (flows == null || flows.isEmpty()) {
-            // Keep the diagram renderable in the SPA even when Petclinic (or other
-            // apps) doesn't expose Modulith event flows.
-            m.append("  noEventFlows[\"No event flows discovered\"]\n");
-            Files.writeString(mermaidDir.resolve("event-flows.mmd"), m.toString());
-            return;
-        }
-        List<String> eventNodeIds = new ArrayList<>();
-        List<String> commandNodeIds = new ArrayList<>();
-        for (EventFlow f : flows) {
-            String pub = sanitizeId(f.publisherModule());
-            String evId = sanitizeId(f.eventType());
-            boolean isCommand = f.eventType().contains("Command");
-            if (isCommand) {
-                if (!commandNodeIds.contains(evId)) commandNodeIds.add(evId);
-            } else {
-                if (!eventNodeIds.contains(evId)) eventNodeIds.add(evId);
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("event-flows.mmd")))) {
+            pw.println("%% Events and commands (command = name contains 'Command'); different color and shape");
+            pw.println("flowchart LR");
+            if (flows == null || flows.isEmpty()) {
+                pw.println("  noEventFlows[\"No event flows discovered\"]");
+                return;
             }
-            for (String listener : f.listenerModules()) {
-                String lis = sanitizeId(listener);
-                m.append("  ").append(pub).append(" --> ").append(evId).append(" --> ").append(lis).append("\n");
+            List<String> eventNodeIds = new ArrayList<>();
+            List<String> commandNodeIds = new ArrayList<>();
+            for (EventFlow f : flows) {
+                String pub = sanitizeId(f.publisherModule());
+                String evId = sanitizeId(f.eventType());
+                boolean isCommand = f.eventType().contains("Command");
+                if (isCommand) {
+                    if (!commandNodeIds.contains(evId)) commandNodeIds.add(evId);
+                } else {
+                    if (!eventNodeIds.contains(evId)) eventNodeIds.add(evId);
+                }
+                for (String listener : f.listenerModules()) {
+                    String lis = sanitizeId(listener);
+                    pw.println("  " + pub + " --> " + evId + " --> " + lis);
+                }
+                if (f.listenerModules().isEmpty()) {
+                    pw.println("  " + pub + " --> " + evId);
+                }
             }
-            if (f.listenerModules().isEmpty()) {
-                m.append("  ").append(pub).append(" --> ").append(evId).append("\n");
+            pw.println("  classDef eventNode fill:#fff3e0,stroke:#e65100,stroke-width:2px,rx:8,ry:8");
+            pw.println("  classDef commandNode fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,rx:20,ry:20");
+            if (!eventNodeIds.isEmpty()) {
+                pw.println("  class " + String.join(",", eventNodeIds) + " eventNode");
+            }
+            if (!commandNodeIds.isEmpty()) {
+                pw.println("  class " + String.join(",", commandNodeIds) + " commandNode");
             }
         }
-        m.append("  classDef eventNode fill:#fff3e0,stroke:#e65100,stroke-width:2px,rx:8,ry:8\n");
-        m.append("  classDef commandNode fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,rx:20,ry:20\n");
-        if (!eventNodeIds.isEmpty()) {
-            m.append("  class ").append(String.join(",", eventNodeIds)).append(" eventNode\n");
-        }
-        if (!commandNodeIds.isEmpty()) {
-            m.append("  class ").append(String.join(",", commandNodeIds)).append(" commandNode\n");
-        }
-        Files.writeString(mermaidDir.resolve("event-flows.mmd"), m.toString());
     }
 
     private void writeMermaidSequences(Path outputDir, List<EventFlow> flows) throws IOException {
         Path dir = outputDir.resolve("mermaid");
         Files.createDirectories(dir);
         for (EventFlow flow : flows) {
-            StringBuilder m = new StringBuilder();
-            m.append("sequenceDiagram\n");
-            String publisherId = sanitizeId(flow.publisherModule());
-            m.append("  participant ").append(publisherId).append(" as ").append(flow.publisherModule()).append("\n");
-            for (String l : flow.listenerModules()) {
-                m.append("  participant ").append(sanitizeId(l)).append(" as ").append(l).append("\n");
-            }
-            m.append("  ").append(publisherId).append("->>+");
-            if (flow.listenerModules().isEmpty()) {
-                m.append("?: ").append(flow.eventType()).append("\n");
-            } else {
-                m.append(sanitizeId(flow.listenerModules().get(0))).append(": ").append(flow.eventType()).append("\n");
-                for (int i = 1; i < flow.listenerModules().size(); i++) {
-                    m.append("  ").append(sanitizeId(flow.listenerModules().get(i - 1)))
-                            .append("->>+").append(sanitizeId(flow.listenerModules().get(i)))
-                            .append(": ").append(flow.eventType()).append("\n");
+            try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(dir.resolve("sequence-" + sanitizeId(flow.eventType()) + ".mmd")))) {
+                pw.println("sequenceDiagram");
+                String publisherId = sanitizeId(flow.publisherModule());
+                pw.println("  participant " + publisherId + " as " + flow.publisherModule());
+                for (String l : flow.listenerModules()) {
+                    pw.println("  participant " + sanitizeId(l) + " as " + l);
+                }
+                pw.print("  " + publisherId + "->>+");
+                if (flow.listenerModules().isEmpty()) {
+                    pw.println("?: " + flow.eventType());
+                } else {
+                    pw.println(sanitizeId(flow.listenerModules().get(0)) + ": " + flow.eventType());
+                    for (int i = 1; i < flow.listenerModules().size(); i++) {
+                        pw.println("  " + sanitizeId(flow.listenerModules().get(i - 1))
+                                + "->>+" + sanitizeId(flow.listenerModules().get(i))
+                                + ": " + flow.eventType());
+                    }
                 }
             }
-            Files.writeString(dir.resolve("sequence-" + sanitizeId(flow.eventType()) + ".mmd"), m.toString());
         }
     }
 
     private void writeMermaidModuleDependencies(Path outputDir, List<ModuleDependency> deps) throws IOException {
         Path dir = outputDir.resolve("mermaid");
         Files.createDirectories(dir);
-        StringBuilder m = new StringBuilder();
-        m.append("%% Module dependencies\n");
-        m.append("flowchart LR\n");
-        if (deps == null || deps.isEmpty()) {
-            // Keep the diagram renderable in the SPA even when no Modulith
-            // module relationships are available for the configured dependency
-            // kinds.
-            m.append("  noModuleDependencies[\"No module dependencies discovered\"]\n");
-            Files.writeString(dir.resolve("module-dependencies.mmd"), m.toString());
-            return;
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(dir.resolve("module-dependencies.mmd")))) {
+            pw.println("%% Module dependencies");
+            pw.println("flowchart LR");
+            if (deps == null || deps.isEmpty()) {
+                pw.println("  noModuleDependencies[\"No module dependencies discovered\"]");
+                return;
+            }
+            for (ModuleDependency d : deps) {
+                pw.println("  " + sanitizeId(d.fromModule()) + " --> " + sanitizeId(d.toModule()));
+            }
         }
-        for (ModuleDependency d : deps) {
-            m.append("  ").append(sanitizeId(d.fromModule())).append(" --> ").append(sanitizeId(d.toModule())).append("\n");
-        }
-        Files.writeString(dir.resolve("module-dependencies.mmd"), m.toString());
     }
 
     private void writeMessagingFlows(Path outputDir, List<MessagingFlow> flows) throws IOException {
         if (flows.isEmpty()) return;
         Path mermaidDir = outputDir.resolve("mermaid");
         Files.createDirectories(mermaidDir);
-        StringBuilder m = new StringBuilder();
-        m.append("flowchart LR\n");
-        for (MessagingFlow f : flows) {
-            String pub = sanitizeId(f.publisher());
-            String dest = sanitizeId(f.destination());
-            m.append("  ").append(pub).append(" -- ").append(f.technology()).append(" --> ").append(dest).append("\n");
-            for (String sub : f.subscribers()) {
-                m.append("  ").append(dest).append(" --> ").append(sanitizeId(sub)).append("\n");
-            }
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("messaging-flows.mmd")))) {
+            pw.println("flowchart LR");
+            flows.stream()
+                    .flatMap(f -> Stream.concat(
+                            Stream.of("  " + sanitizeId(f.publisher()) + " -- " + f.technology() + " --> " + sanitizeId(f.destination())),
+                            f.subscribers().stream().map(sub -> "  " + sanitizeId(f.destination()) + " --> " + sanitizeId(sub))
+                    ))
+                    .forEach(pw::println);
         }
-        Files.writeString(mermaidDir.resolve("messaging-flows.mmd"), m.toString());
     }
 
     /**
@@ -166,47 +160,46 @@ public final class MermaidOutput implements DiagramOutput {
             byLayer.computeIfAbsent(info.layer(), k -> new ArrayList<>()).add(info);
         }
 
-        StringBuilder m = new StringBuilder();
-        m.append("%% Class architecture fallback (non-Modulith)\n");
-        m.append("flowchart LR\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("architecture-class-diagram.mmd")))) {
+            pw.println("%% Class architecture fallback (non-Modulith)");
+            pw.println("flowchart LR");
 
-        for (Map.Entry<String, List<ArchitectureInfo>> entry : byLayer.entrySet()) {
-            for (ArchitectureInfo info : entry.getValue()) {
-                String id = sanitizeId(info.className());
-                String label = simpleName(info.className());
-                m.append("  ").append(id).append("[\"").append(label).append("\"]\n");
+            for (Map.Entry<String, List<ArchitectureInfo>> entry : byLayer.entrySet()) {
+                for (ArchitectureInfo info : entry.getValue()) {
+                    String id = sanitizeId(info.className());
+                    String label = simpleName(info.className());
+                    pw.println("  " + id + "[\"" + label + "\"]");
+                }
             }
-        }
 
-        for (ArchitectureInfo c : byLayer.getOrDefault("controller", List.of())) {
+            for (ArchitectureInfo c : byLayer.getOrDefault("controller", List.of())) {
+                for (ArchitectureInfo s : byLayer.getOrDefault("service", List.of())) {
+                    pw.println("  " + sanitizeId(c.className()) + " --> " + sanitizeId(s.className()));
+                }
+            }
             for (ArchitectureInfo s : byLayer.getOrDefault("service", List.of())) {
-                m.append("  ").append(sanitizeId(c.className())).append(" --> ").append(sanitizeId(s.className())).append("\n");
+                for (ArchitectureInfo r : byLayer.getOrDefault("repository", List.of())) {
+                    pw.println("  " + sanitizeId(s.className()) + " --> " + sanitizeId(r.className()));
+                }
             }
-        }
-        for (ArchitectureInfo s : byLayer.getOrDefault("service", List.of())) {
-            for (ArchitectureInfo r : byLayer.getOrDefault("repository", List.of())) {
-                m.append("  ").append(sanitizeId(s.className())).append(" --> ").append(sanitizeId(r.className())).append("\n");
-            }
-        }
 
-        m.append("  classDef controller fill:#e3f2fd,stroke:#1565c0,stroke-width:2px\n");
-        m.append("  classDef service fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px\n");
-        m.append("  classDef repository fill:#fff3e0,stroke:#ef6c00,stroke-width:2px\n");
-        applyLayerClass(m, byLayer, "controller");
-        applyLayerClass(m, byLayer, "service");
-        applyLayerClass(m, byLayer, "repository");
-
-        Files.writeString(mermaidDir.resolve("architecture-class-diagram.mmd"), m.toString());
+            pw.println("  classDef controller fill:#e3f2fd,stroke:#1565c0,stroke-width:2px");
+            pw.println("  classDef service fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px");
+            pw.println("  classDef repository fill:#fff3e0,stroke:#ef6c00,stroke-width:2px");
+            applyLayerClass(pw, byLayer, "controller");
+            applyLayerClass(pw, byLayer, "service");
+            applyLayerClass(pw, byLayer, "repository");
+        }
     }
 
-    private void applyLayerClass(StringBuilder m, Map<String, List<ArchitectureInfo>> byLayer, String layer) {
+    private void applyLayerClass(PrintWriter pw, Map<String, List<ArchitectureInfo>> byLayer, String layer) {
         List<ArchitectureInfo> infos = byLayer.getOrDefault(layer, List.of());
         if (infos.isEmpty()) return;
         List<String> ids = new ArrayList<>();
         for (ArchitectureInfo info : infos) {
             ids.add(sanitizeId(info.className()));
         }
-        m.append("  class ").append(String.join(",", ids)).append(" ").append(layer).append("\n");
+        pw.println("  class " + String.join(",", ids) + " " + layer);
     }
 
     private static String simpleName(String fqcn) {
@@ -220,46 +213,46 @@ public final class MermaidOutput implements DiagramOutput {
         Files.createDirectories(mermaidDir);
 
         Map<String, List<ArchitectureInfo>> byLayer = groupByLayer(infos);
-        StringBuilder m = new StringBuilder();
-        m.append("%% Layer flow fallback (non-Modulith)\n");
-        m.append("flowchart LR\n");
-        appendLayerNode(m, byLayer, "controller", "Controller");
-        appendLayerNode(m, byLayer, "service", "Service");
-        appendLayerNode(m, byLayer, "repository", "Repository");
-        appendLayerNode(m, byLayer, "domain", "Domain");
-        appendLayerNode(m, byLayer, "application", "Application");
-        appendLayerNode(m, byLayer, "infrastructure", "Infrastructure");
-        appendLayerFlowEdges(m, byLayer);
-        Files.writeString(mermaidDir.resolve("architecture-flow.mmd"), m.toString());
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("architecture-flow.mmd")))) {
+            pw.println("%% Layer flow fallback (non-Modulith)");
+            pw.println("flowchart LR");
+            appendLayerNode(pw, byLayer, "controller", "Controller");
+            appendLayerNode(pw, byLayer, "service", "Service");
+            appendLayerNode(pw, byLayer, "repository", "Repository");
+            appendLayerNode(pw, byLayer, "domain", "Domain");
+            appendLayerNode(pw, byLayer, "application", "Application");
+            appendLayerNode(pw, byLayer, "infrastructure", "Infrastructure");
+            appendLayerFlowEdges(pw, byLayer);
+        }
     }
 
     private void writeEntityRelationshipDiagram(Path outputDir, List<EntityRelation> relations) throws IOException {
         if (relations == null || relations.isEmpty()) return;
         Path mermaidDir = outputDir.resolve("mermaid");
         Files.createDirectories(mermaidDir);
-        StringBuilder m = new StringBuilder();
-        m.append("%% Entity relationship diagram inferred from JPA annotations\n");
-        m.append("classDiagram\n");
-        List<String> declared = new ArrayList<>();
-        for (EntityRelation relation : relations) {
-            String from = sanitizeId(relation.fromEntity());
-            String to = sanitizeId(relation.toEntity());
-            if (!declared.contains(from)) {
-                m.append("  class ").append(from).append(" {\n");
-                m.append("    <<Entity>>\n");
-                m.append("  }\n");
-                declared.add(from);
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("entity-relationship.mmd")))) {
+            pw.println("%% Entity relationship diagram inferred from JPA annotations");
+            pw.println("classDiagram");
+            List<String> declared = new ArrayList<>();
+            for (EntityRelation relation : relations) {
+                String from = sanitizeId(relation.fromEntity());
+                String to = sanitizeId(relation.toEntity());
+                if (!declared.contains(from)) {
+                    pw.println("  class " + from + " {");
+                    pw.println("    <<Entity>>");
+                    pw.println("  }");
+                    declared.add(from);
+                }
+                if (!declared.contains(to)) {
+                    pw.println("  class " + to + " {");
+                    pw.println("    <<Entity>>");
+                    pw.println("  }");
+                    declared.add(to);
+                }
+                pw.println("  " + from + " " + mermaidRelationArrow(relation.relationType()) + " " + to
+                        + " : " + relation.relationType());
             }
-            if (!declared.contains(to)) {
-                m.append("  class ").append(to).append(" {\n");
-                m.append("    <<Entity>>\n");
-                m.append("  }\n");
-                declared.add(to);
-            }
-            m.append("  ").append(from).append(" ").append(mermaidRelationArrow(relation.relationType())).append(" ").append(to)
-                    .append(" : ").append(relation.relationType()).append("\n");
         }
-        Files.writeString(mermaidDir.resolve("entity-relationship.mmd"), m.toString());
     }
 
     private void writeDeploymentDiagram(Path outputDir,
@@ -274,23 +267,23 @@ public final class MermaidOutput implements DiagramOutput {
 
         Path mermaidDir = outputDir.resolve("mermaid");
         Files.createDirectories(mermaidDir);
-        StringBuilder m = new StringBuilder();
-        m.append("%% Runtime deployment view\n");
-        m.append("flowchart LR\n");
-        m.append("  client[\"Client Browser\"]\n");
-        m.append("  app[\"Spring Boot Application\"]\n");
-        if (hasApi) {
-            m.append("  client -->|HTTP| app\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("deployment-diagram.mmd")))) {
+            pw.println("%% Runtime deployment view");
+            pw.println("flowchart LR");
+            pw.println("  client[\"Client Browser\"]");
+            pw.println("  app[\"Spring Boot Application\"]");
+            if (hasApi) {
+                pw.println("  client -->|HTTP| app");
+            }
+            if (hasDb) {
+                pw.println("  db[(\"Application Database\")]");
+                pw.println("  app -->|JPA/SQL| db");
+            }
+            if (hasMessaging) {
+                pw.println("  broker[(\"Message Broker\")]");
+                pw.println("  app -->|Publish/Consume| broker");
+            }
         }
-        if (hasDb) {
-            m.append("  db[(\"Application Database\")]\n");
-            m.append("  app -->|JPA/SQL| db\n");
-        }
-        if (hasMessaging) {
-            m.append("  broker[(\"Message Broker\")]\n");
-            m.append("  app -->|Publish/Consume| broker\n");
-        }
-        Files.writeString(mermaidDir.resolve("deployment-diagram.mmd"), m.toString());
     }
 
     private void writeDataLineageDiagram(Path outputDir,
@@ -324,53 +317,53 @@ public final class MermaidOutput implements DiagramOutput {
             }
         }
 
-        StringBuilder m = new StringBuilder();
-        m.append("%% Data lineage (Endpoint -> Controller -> Service -> Repository -> Entity)\n");
-        m.append("flowchart LR\n");
-        m.append("  client((Client))\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("data-lineage-diagram.mmd")))) {
+            pw.println("%% Data lineage (Endpoint -> Controller -> Service -> Repository -> Entity)");
+            pw.println("flowchart LR");
+            pw.println("  client((Client))");
 
-        java.util.Set<String> declaredNodes = new java.util.LinkedHashSet<>();
+            java.util.Set<String> declaredNodes = new java.util.LinkedHashSet<>();
 
-        for (EndpointFlow endpoint : endpointFlows) {
-            String endpointId = sanitizeId("ep_" + endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod());
-            String controllerId = sanitizeId(endpoint.controllerClass());
-            String serviceClass = firstDependencyTarget(endpoint.controllerClass(), services, safeDeps);
-            String repositoryClass = serviceClass == null ? null : firstDependencyTarget(serviceClass, repositories, safeDeps);
+            for (EndpointFlow endpoint : endpointFlows) {
+                String endpointId = sanitizeId("ep_" + endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod());
+                String controllerId = sanitizeId(endpoint.controllerClass());
+                String serviceClass = firstDependencyTarget(endpoint.controllerClass(), services, safeDeps);
+                String repositoryClass = serviceClass == null ? null : firstDependencyTarget(serviceClass, repositories, safeDeps);
 
-            m.append("  ").append(endpointId).append("[\"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\"]\n");
+                pw.println("  " + endpointId + "[\"" + endpoint.httpMethod() + " " + endpoint.path() + "\"]");
 
-            if (declaredNodes.add(controllerId)) {
-                m.append("  ").append(controllerId).append("[\"").append(simpleName(endpoint.controllerClass())).append("\"]\n");
-            }
-            m.append("  client --> ").append(endpointId).append("\n");
-            m.append("  ").append(endpointId).append(" --> ").append(controllerId).append("\n");
-
-            if (serviceClass != null) {
-                String serviceId = sanitizeId(serviceClass);
-                if (declaredNodes.add(serviceId)) {
-                    m.append("  ").append(serviceId).append("[\"").append(simpleName(serviceClass)).append("\"]\n");
+                if (declaredNodes.add(controllerId)) {
+                    pw.println("  " + controllerId + "[\"" + simpleName(endpoint.controllerClass()) + "\"]");
                 }
-                m.append("  ").append(controllerId).append(" --> ").append(serviceId).append("\n");
+                pw.println("  client --> " + endpointId);
+                pw.println("  " + endpointId + " --> " + controllerId);
 
-                if (repositoryClass != null) {
-                    String repoId = sanitizeId(repositoryClass);
-                    if (declaredNodes.add(repoId)) {
-                        m.append("  ").append(repoId).append("[\"").append(simpleName(repositoryClass)).append("\"]\n");
+                if (serviceClass != null) {
+                    String serviceId = sanitizeId(serviceClass);
+                    if (declaredNodes.add(serviceId)) {
+                        pw.println("  " + serviceId + "[\"" + simpleName(serviceClass) + "\"]");
                     }
-                    m.append("  ").append(serviceId).append(" --> ").append(repoId).append("\n");
+                    pw.println("  " + controllerId + " --> " + serviceId);
 
-                    List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
-                    for (String entity : entities) {
-                        String entityId = sanitizeId(entity);
-                        if (declaredNodes.add(entityId)) {
-                            m.append("  ").append(entityId).append("[\"").append(simpleName(entity)).append("\"]\n");
+                    if (repositoryClass != null) {
+                        String repoId = sanitizeId(repositoryClass);
+                        if (declaredNodes.add(repoId)) {
+                            pw.println("  " + repoId + "[\"" + simpleName(repositoryClass) + "\"]");
                         }
-                        m.append("  ").append(repoId).append(" --> ").append(entityId).append("\n");
+                        pw.println("  " + serviceId + " --> " + repoId);
+
+                        List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
+                        for (String entity : entities) {
+                            String entityId = sanitizeId(entity);
+                            if (declaredNodes.add(entityId)) {
+                                pw.println("  " + entityId + "[\"" + simpleName(entity) + "\"]");
+                            }
+                            pw.println("  " + repoId + " --> " + entityId);
+                        }
                     }
                 }
             }
         }
-        Files.writeString(mermaidDir.resolve("data-lineage-diagram.mmd"), m.toString());
     }
 
     private void writeEndpointDataLineageDiagram(Path outputDir,
@@ -414,42 +407,41 @@ public final class MermaidOutput implements DiagramOutput {
             String serviceId = serviceClass != null ? sanitizeId(serviceClass) : null;
             String repoId = repositoryClass != null ? sanitizeId(repositoryClass) : null;
 
-            StringBuilder m = new StringBuilder();
-            m.append("%% Endpoint data lineage\n");
-            m.append("flowchart LR\n");
-            m.append("  client((Client))\n");
-            m.append("  ").append(endpointId).append("[\"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\"]\n");
-            m.append("  ").append(controllerId).append("[\"").append(simpleName(controllerClass)).append("\"]\n");
-            m.append("  client --> ").append(endpointId).append("\n");
-            m.append("  ").append(endpointId).append(" --> ").append(controllerId).append("\n");
+            String sequenceFileName = "endpoint-data-lineage-" + sanitizeId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod()) + ".mmd";
+            try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve(sequenceFileName)))) {
+                pw.println("%% Endpoint data lineage");
+                pw.println("flowchart LR");
+                pw.println("  client((Client))");
+                pw.println("  " + endpointId + "[\"" + endpoint.httpMethod() + " " + endpoint.path() + "\"]");
+                pw.println("  " + controllerId + "[\"" + simpleName(controllerClass) + "\"]");
+                pw.println("  client --> " + endpointId);
+                pw.println("  " + endpointId + " --> " + controllerId);
 
-            if (serviceClass != null) {
-                m.append("  ").append(serviceId).append("[\"").append(simpleName(serviceClass)).append("\"]\n");
-                m.append("  ").append(controllerId).append(" --> ").append(serviceId).append("\n");
-            }
+                if (serviceClass != null) {
+                    pw.println("  " + serviceId + "[\"" + simpleName(serviceClass) + "\"]");
+                    pw.println("  " + controllerId + " --> " + serviceId);
+                }
 
-            if (repositoryClass != null) {
-                m.append("  ").append(repoId).append("[\"").append(simpleName(repositoryClass)).append("\"]\n");
-                m.append("  ").append(serviceId != null ? serviceId : controllerId).append(" --> ").append(repoId).append("\n");
+                if (repositoryClass != null) {
+                    pw.println("  " + repoId + "[\"" + simpleName(repositoryClass) + "\"]");
+                    pw.println("  " + (serviceId != null ? serviceId : controllerId) + " --> " + repoId);
 
-                List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
-                if (!entities.isEmpty()) {
-                    for (String entity : entities) {
-                        String entityId = sanitizeId(entity);
-                        m.append("  ").append(entityId).append("[\"").append(simpleName(entity)).append("\"]\n");
-                        m.append("  ").append(repoId).append(" --> ").append(entityId).append("\n");
+                    List<String> entities = repoToEntities.getOrDefault(repositoryClass, List.of());
+                    if (!entities.isEmpty()) {
+                        for (String entity : entities) {
+                            String entityId = sanitizeId(entity);
+                            pw.println("  " + entityId + "[\"" + simpleName(entity) + "\"]");
+                            pw.println("  " + repoId + " --> " + entityId);
+                        }
+                    } else {
+                        pw.println("  noEntity[\"No entity lineage discovered\"]");
+                        pw.println("  " + repoId + " -.-> noEntity");
                     }
                 } else {
-                    m.append("  noEntity[\"No entity lineage discovered\"]\n");
-                    m.append("  ").append(repoId).append(" -.-> noEntity\n");
+                    pw.println("  noRepo[\"No repository discovered\"]");
+                    pw.println("  " + controllerId + " -.-> noRepo");
                 }
-            } else {
-                m.append("  noRepo[\"No repository discovered\"]\n");
-                m.append("  ").append(controllerId).append(" -.-> noRepo\n");
             }
-
-            String sequenceFileName = "endpoint-data-lineage-" + sanitizeId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod()) + ".mmd";
-            Files.writeString(mermaidDir.resolve(sequenceFileName), m.toString());
         }
     }
 
@@ -480,20 +472,20 @@ public final class MermaidOutput implements DiagramOutput {
         String service = serviceClass != null ? simpleName(serviceClass) : "Service";
         String repository = repositoryClass != null ? simpleName(repositoryClass) : "Repository";
 
-        StringBuilder m = new StringBuilder();
-        m.append("%% Request sequence fallback (non-Modulith)\n");
-        m.append("sequenceDiagram\n");
-        m.append("  participant Client\n");
-        m.append("  participant ").append(controller).append("\n");
-        m.append("  participant ").append(service).append("\n");
-        m.append("  participant ").append(repository).append("\n");
-        m.append("  Client->>").append(controller).append(": HTTP request\n");
-        m.append("  ").append(controller).append("->>").append(service).append(": invoke use case\n");
-        m.append("  ").append(service).append("->>").append(repository).append(": query/persist\n");
-        m.append("  ").append(repository).append("-->>").append(service).append(": data\n");
-        m.append("  ").append(service).append("-->>").append(controller).append(": response model\n");
-        m.append("  ").append(controller).append("-->>Client: HTTP response\n");
-        Files.writeString(mermaidDir.resolve("architecture-sequence.mmd"), m.toString());
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("architecture-sequence.mmd")))) {
+            pw.println("%% Request sequence fallback (non-Modulith)");
+            pw.println("sequenceDiagram");
+            pw.println("  participant Client");
+            pw.println("  participant " + controller);
+            pw.println("  participant " + service);
+            pw.println("  participant " + repository);
+            pw.println("  Client->>" + controller + ": HTTP request");
+            pw.println("  " + controller + "->>" + service + ": invoke use case");
+            pw.println("  " + service + "->>" + repository + ": query/persist");
+            pw.println("  " + repository + "-->>" + service + ": data");
+            pw.println("  " + service + "-->>" + controller + ": response model");
+            pw.println("  " + controller + "-->>Client: HTTP response");
+        }
     }
 
     private void writeComponentDependenciesDiagram(Path outputDir,
@@ -509,19 +501,19 @@ public final class MermaidOutput implements DiagramOutput {
             layerByClass.put(info.className(), info.layer());
         }
 
-        StringBuilder m = new StringBuilder();
-        m.append("%% Component dependencies (from bytecode)\n");
-        m.append("flowchart LR\n");
-        for (ArchitectureInfo info : infos) {
-            String id = sanitizeId(info.className());
-            m.append("  ").append(id).append("[\"").append(simpleName(info.className())).append("\"]\n");
-        }
-        for (ClassDependency dep : classDependencies) {
-            if (fullDependencyMode || isInterestingDependency(layerByClass, dep)) {
-                m.append("  ").append(sanitizeId(dep.fromClass())).append(" --> ").append(sanitizeId(dep.toClass())).append("\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("architecture-component-dependencies.mmd")))) {
+            pw.println("%% Component dependencies (from bytecode)");
+            pw.println("flowchart LR");
+            for (ArchitectureInfo info : infos) {
+                String id = sanitizeId(info.className());
+                pw.println("  " + id + "[\"" + simpleName(info.className()) + "\"]");
+            }
+            for (ClassDependency dep : classDependencies) {
+                if (fullDependencyMode || isInterestingDependency(layerByClass, dep)) {
+                    pw.println("  " + sanitizeId(dep.fromClass()) + " --> " + sanitizeId(dep.toClass()));
+                }
             }
         }
-        Files.writeString(mermaidDir.resolve("architecture-component-dependencies.mmd"), m.toString());
     }
 
     private static Map<String, List<ArchitectureInfo>> groupByLayer(List<ArchitectureInfo> infos) {
@@ -532,27 +524,27 @@ public final class MermaidOutput implements DiagramOutput {
         return byLayer;
     }
 
-    private static void appendLayerNode(StringBuilder m, Map<String, List<ArchitectureInfo>> byLayer, String key, String label) {
+    private static void appendLayerNode(PrintWriter pw, Map<String, List<ArchitectureInfo>> byLayer, String key, String label) {
         List<ArchitectureInfo> infos = byLayer.get(key);
         if (infos == null || infos.isEmpty()) return;
-        m.append("  ").append(label).append("[\"").append(label).append(" (").append(infos.size()).append(" classes)\"]\n");
+        pw.println("  " + label + "[\"" + label + " (" + infos.size() + " classes)\"]");
     }
 
-    private static void appendLayerFlowEdges(StringBuilder m, Map<String, List<ArchitectureInfo>> byLayer) {
+    private static void appendLayerFlowEdges(PrintWriter pw, Map<String, List<ArchitectureInfo>> byLayer) {
         if (byLayer.containsKey("controller") && byLayer.containsKey("service")) {
-            m.append("  Controller --> Service\n");
+            pw.println("  Controller --> Service");
         }
         if (byLayer.containsKey("service") && byLayer.containsKey("repository")) {
-            m.append("  Service --> Repository\n");
+            pw.println("  Service --> Repository");
         }
         if (byLayer.containsKey("service") && byLayer.containsKey("domain")) {
-            m.append("  Service --> Domain\n");
+            pw.println("  Service --> Domain");
         }
         if (byLayer.containsKey("controller") && byLayer.containsKey("application")) {
-            m.append("  Controller --> Application\n");
+            pw.println("  Controller --> Application");
         }
         if (byLayer.containsKey("application") && byLayer.containsKey("infrastructure")) {
-            m.append("  Application --> Infrastructure\n");
+            pw.println("  Application --> Infrastructure");
         }
     }
 
@@ -595,33 +587,33 @@ public final class MermaidOutput implements DiagramOutput {
         List<ArchitectureInfo> services = byLayer.getOrDefault("service", List.of());
         List<ArchitectureInfo> repositories = byLayer.getOrDefault("repository", List.of());
 
-        StringBuilder m = new StringBuilder();
-        m.append("%% Endpoint flow map\n");
-        m.append("flowchart LR\n");
-        m.append("  Client((Client))\n");
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("endpoint-flow.mmd")))) {
+            pw.println("%% Endpoint flow map");
+            pw.println("flowchart LR");
+            pw.println("  Client((Client))");
 
-        for (EndpointFlow endpoint : endpointFlows) {
-            String endpointId = sanitizeId("ep_" + endpoint.httpMethod() + "_" + endpoint.path());
-            String controllerId = sanitizeId(endpoint.controllerClass());
-            m.append("  ").append(endpointId).append("[\"").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\"]\n");
-            m.append("  ").append(controllerId).append("[\"").append(simpleName(endpoint.controllerClass())).append("\"]\n");
-            m.append("  Client --> ").append(endpointId).append("\n");
-            m.append("  ").append(endpointId).append(" --> ").append(controllerId).append("\n");
+            for (EndpointFlow endpoint : endpointFlows) {
+                String endpointId = sanitizeId("ep_" + endpoint.httpMethod() + "_" + endpoint.path());
+                String controllerId = sanitizeId(endpoint.controllerClass());
+                pw.println("  " + endpointId + "[\"" + endpoint.httpMethod() + " " + endpoint.path() + "\"]");
+                pw.println("  " + controllerId + "[\"" + simpleName(endpoint.controllerClass()) + "\"]");
+                pw.println("  Client --> " + endpointId);
+                pw.println("  " + endpointId + " --> " + controllerId);
 
-            String service = firstDependencyTarget(endpoint.controllerClass(), services, classDependencies);
-            if (service != null) {
-                String serviceId = sanitizeId(service);
-                m.append("  ").append(serviceId).append("[\"").append(simpleName(service)).append("\"]\n");
-                m.append("  ").append(controllerId).append(" --> ").append(serviceId).append("\n");
-                String repository = firstDependencyTarget(service, repositories, classDependencies);
-                if (repository != null) {
-                    String repositoryId = sanitizeId(repository);
-                    m.append("  ").append(repositoryId).append("[\"").append(simpleName(repository)).append("\"]\n");
-                    m.append("  ").append(serviceId).append(" --> ").append(repositoryId).append("\n");
+                String service = firstDependencyTarget(endpoint.controllerClass(), services, classDependencies);
+                if (service != null) {
+                    String serviceId = sanitizeId(service);
+                    pw.println("  " + serviceId + "[\"" + simpleName(service) + "\"]");
+                    pw.println("  " + controllerId + " --> " + serviceId);
+                    String repository = firstDependencyTarget(service, repositories, classDependencies);
+                    if (repository != null) {
+                        String repositoryId = sanitizeId(repository);
+                        pw.println("  " + repositoryId + "[\"" + simpleName(repository) + "\"]");
+                        pw.println("  " + serviceId + " --> " + repositoryId);
+                    }
                 }
             }
         }
-        Files.writeString(mermaidDir.resolve("endpoint-flow.mmd"), m.toString());
     }
 
     private void writeEndpointSequenceDiagram(Path outputDir,
@@ -641,21 +633,21 @@ public final class MermaidOutput implements DiagramOutput {
             String service = serviceClass != null ? simpleName(serviceClass) : "Service";
             String repository = repositoryClass != null ? simpleName(repositoryClass) : "Repository";
 
-            StringBuilder m = new StringBuilder();
-            m.append("%% Endpoint sequence\n");
-            m.append("sequenceDiagram\n");
-            m.append("  participant Client\n");
-            m.append("  participant ").append(controller).append("\n");
-            m.append("  participant ").append(service).append("\n");
-            m.append("  participant ").append(repository).append("\n");
-            m.append("  Client->>").append(controller).append(": ").append(endpoint.httpMethod()).append(" ").append(endpoint.path()).append("\n");
-            m.append("  ").append(controller).append("->>").append(service).append(": ").append(endpoint.controllerMethod()).append("()\n");
-            m.append("  ").append(service).append("->>").append(repository).append(": query/persist\n");
-            m.append("  ").append(repository).append("-->>").append(service).append(": data\n");
-            m.append("  ").append(service).append("-->>").append(controller).append(": response model\n");
-            m.append("  ").append(controller).append("-->>Client: HTTP response\n");
             String sequenceFileName = "endpoint-sequence-" + sanitizeId(endpoint.httpMethod() + "_" + endpoint.path() + "_" + endpoint.controllerMethod()) + ".mmd";
-            Files.writeString(mermaidDir.resolve(sequenceFileName), m.toString());
+            try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve(sequenceFileName)))) {
+                pw.println("%% Endpoint sequence");
+                pw.println("sequenceDiagram");
+                pw.println("  participant Client");
+                pw.println("  participant " + controller);
+                pw.println("  participant " + service);
+                pw.println("  participant " + repository);
+                pw.println("  Client->>" + controller + ": " + endpoint.httpMethod() + " " + endpoint.path());
+                pw.println("  " + controller + "->>" + service + ": " + endpoint.controllerMethod() + "()");
+                pw.println("  " + service + "->>" + repository + ": query/persist");
+                pw.println("  " + repository + "-->>" + service + ": data");
+                pw.println("  " + service + "-->>" + controller + ": response model");
+                pw.println("  " + controller + "-->>Client: HTTP response");
+            }
         }
     }
 
@@ -670,14 +662,14 @@ public final class MermaidOutput implements DiagramOutput {
         }
 
         for (Map.Entry<String, List<BpmnFlow>> entry : processes.entrySet()) {
-            StringBuilder m = new StringBuilder();
-            m.append("sequenceDiagram\n");
-            m.append("  Note over Engine: Process ").append(entry.getKey()).append("\n");
-            for (BpmnFlow f : entry.getValue()) {
-                m.append("  Engine->>+").append(sanitizeId(f.delegateBean())).append(": ").append(f.stepName()).append("\n");
-                m.append("  ").append(sanitizeId(f.delegateBean())).append("-->>-Engine: done\n");
+            try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("bpmn-sequence-" + sanitizeId(entry.getKey()) + ".mmd")))) {
+                pw.println("sequenceDiagram");
+                pw.println("  Note over Engine: Process " + entry.getKey());
+                for (BpmnFlow f : entry.getValue()) {
+                    pw.println("  Engine->>+" + sanitizeId(f.delegateBean()) + ": " + f.stepName());
+                    pw.println("  " + sanitizeId(f.delegateBean()) + "-->>-Engine: done");
+                }
             }
-            Files.writeString(mermaidDir.resolve("bpmn-sequence-" + sanitizeId(entry.getKey()) + ".mmd"), m.toString());
         }
     }
 
@@ -701,4 +693,3 @@ public final class MermaidOutput implements DiagramOutput {
         return infos.stream().anyMatch(i -> layer.equals(i.layer()));
     }
 }
-

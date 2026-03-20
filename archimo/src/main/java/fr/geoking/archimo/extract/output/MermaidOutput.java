@@ -7,6 +7,8 @@ import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.ExternalSystemHint;
+import fr.geoking.archimo.extract.model.InfrastructureTopology;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 import fr.geoking.archimo.extract.model.ModuleDependency;
 import org.springframework.modulith.core.ApplicationModules;
@@ -39,7 +41,8 @@ public final class MermaidOutput implements DiagramOutput {
         writeMermaidModuleDependencies(outputDir, deps);
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
         writeEntityRelationshipDiagram(outputDir, result.entityRelations());
-        writeDeploymentDiagram(outputDir, result.architectureInfos(), result.endpointFlows(), result.messagingFlows(), result.entityRelations());
+        writeDeploymentDiagram(outputDir, result.architectureInfos(), result.endpointFlows(), result.messagingFlows(), result.entityRelations(),
+                result.infrastructureTopology());
         writeDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
         if (result.endpointFlows().size() <= MAX_ENDPOINT_SPECIFIC_DIAGRAMS) {
             writeEndpointDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
@@ -289,11 +292,16 @@ public final class MermaidOutput implements DiagramOutput {
                                         List<ArchitectureInfo> infos,
                                         List<EndpointFlow> endpointFlows,
                                         List<MessagingFlow> messagingFlows,
-                                        List<EntityRelation> entityRelations) throws IOException {
+                                        List<EntityRelation> entityRelations,
+                                        InfrastructureTopology infrastructureTopology) throws IOException {
+        InfrastructureTopology topo = infrastructureTopology != null ? infrastructureTopology : InfrastructureTopology.empty();
+        boolean hasManifestExternals = !topo.externalSystems().isEmpty();
         boolean hasApi = (endpointFlows != null && !endpointFlows.isEmpty()) || containsLayer(infos, "controller");
         boolean hasDb = containsLayer(infos, "repository") || (entityRelations != null && !entityRelations.isEmpty());
         boolean hasMessaging = messagingFlows != null && !messagingFlows.isEmpty();
-        if (!hasApi && !hasDb && !hasMessaging) return;
+        if (!hasApi && !hasDb && !hasMessaging && !hasManifestExternals) {
+            return;
+        }
 
         Path mermaidDir = outputDir.resolve("mermaid");
         Files.createDirectories(mermaidDir);
@@ -313,7 +321,51 @@ public final class MermaidOutput implements DiagramOutput {
                 pw.println("  broker[(\"Message Broker\")]");
                 pw.println("  app -->|Publish/Consume| broker");
             }
+            writeManifestExternalSystemsMermaid(pw, topo);
         }
+    }
+
+    private static void writeManifestExternalSystemsMermaid(PrintWriter pw, InfrastructureTopology topo) {
+        List<ExternalSystemHint> hints = topo.externalSystems();
+        for (int i = 0; i < hints.size() && i < 18; i++) {
+            ExternalSystemHint h = hints.get(i);
+            String id = sanitizeId("manifest_ext_" + i + "_" + h.label());
+            String shapeOpen;
+            String shapeClose;
+            switch (h.category()) {
+                case "DATABASE" -> {
+                    shapeOpen = "[(\"";
+                    shapeClose = "\")]";
+                }
+                case "MESSAGE_BUS_KAFKA", "MESSAGE_BUS_JMS" -> {
+                    shapeOpen = "[(\"";
+                    shapeClose = "\")]";
+                }
+                default -> {
+                    shapeOpen = "[\"";
+                    shapeClose = "\"]";
+                }
+            }
+            String label = (h.label() + " (" + h.category() + ")").replace("\"", "'");
+            pw.println("  " + id + shapeOpen + label + shapeClose);
+            pw.println("  app -->|" + mermaidEdgeLabel(h.category()) + "| " + id);
+        }
+    }
+
+    private static String mermaidEdgeLabel(String category) {
+        if (category == null) {
+            return "uses";
+        }
+        return switch (category) {
+            case "DATABASE" -> "SQL/driver";
+            case "MESSAGE_BUS_KAFKA", "MESSAGE_BUS_JMS" -> "messaging";
+            case "OBJECT_STORAGE" -> "S3/API";
+            case "HTTP_GATEWAY", "REVERSE_PROXY" -> "HTTP";
+            case "CACHE" -> "cache";
+            case "SEARCH" -> "search";
+            case "CLOUD_PROVIDER", "SAAS_HTTP" -> "HTTPS";
+            default -> "integrates";
+        };
     }
 
     private void writeDataLineageDiagram(Path outputDir,

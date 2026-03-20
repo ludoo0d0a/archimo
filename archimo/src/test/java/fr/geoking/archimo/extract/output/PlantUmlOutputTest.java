@@ -6,6 +6,7 @@ import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.ExternalHttpClient;
+import fr.geoking.archimo.extract.model.InfrastructureTopology;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -54,6 +55,7 @@ class PlantUmlOutputTest {
                 List.of(
                         new ExternalHttpClient("FEIGN", "com.example.petclinic.PaymentClient", "name=payment-service")
                 ),
+                InfrastructureTopology.empty(),
                 "com.example.petclinic.PetclinicApplication",
                 false
         );
@@ -160,6 +162,7 @@ class PlantUmlOutputTest {
                 ),
                 List.of(),
                 List.of(),
+                InfrastructureTopology.empty(),
                 null,
                 true
         );

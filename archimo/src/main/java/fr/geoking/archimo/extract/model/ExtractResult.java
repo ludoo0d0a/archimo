@@ -23,6 +23,8 @@ public record ExtractResult(
     List<ArchitectureInfo> architectureInfos,
     List<OpenApiSpecFile> openApiSpecFiles,
     List<ExternalHttpClient> externalHttpClients,
+    /** Runtime topology from Docker / Kubernetes manifests under the project. */
+    InfrastructureTopology infrastructureTopology,
     /** Fully qualified main application class when discovered, else null. */
     String applicationMainClass,
     boolean fullDependencyMode

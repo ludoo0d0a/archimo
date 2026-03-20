@@ -15,7 +15,7 @@
     <h1>Archimo Architecture Explorer</h1>
     <div class="header-actions">
       <div class="search-bar">
-        <input id="searchInput" type="search" placeholder="Search modules, classes, events, OpenAPI, HTTP clients…" />
+        <input id="searchInput" type="search" placeholder="Search modules, classes, events, OpenAPI, HTTP clients, Docker/K8s…" />
       </div>
       <button id="copyLinkBtn" class="header-link-btn" title="Copy deep link" aria-label="Copy deep link">Copy Link</button>
       <button id="themeToggle" title="Toggle Dark/Light Mode" aria-label="Toggle theme">
@@ -136,6 +136,14 @@
           <div class="results-column">
             <h3>External HTTP clients</h3>
             <ul id="externalHttpResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>Docker / Kubernetes</h3>
+            <ul id="deploymentInfraResults"></ul>
+          </div>
+          <div class="results-column">
+            <h3>External systems (manifests)</h3>
+            <ul id="deploymentExternalResults"></ul>
           </div>
         </div>
       </section>

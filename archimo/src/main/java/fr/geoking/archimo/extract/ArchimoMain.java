@@ -296,7 +296,10 @@ public final class ArchimoMain {
             sb.append("- **BPMN Flows**: ").append(result.bpmnFlows().size()).append("\n");
             sb.append("- **Architecture Components**: ").append(result.architectureInfos().size()).append("\n");
             sb.append("- **OpenAPI / Swagger files**: ").append(result.openApiSpecFiles().size()).append("\n");
-            sb.append("- **External HTTP client usages**: ").append(result.externalHttpClients().size()).append("\n\n");
+            sb.append("- **External HTTP client usages**: ").append(result.externalHttpClients().size()).append("\n");
+            var infra = result.infrastructureTopology();
+            sb.append("- **Docker/Kubernetes manifest files**: ").append(infra.files().size()).append("\n");
+            sb.append("- **Inferred external systems (from manifests)**: ").append(infra.externalSystems().size()).append("\n\n");
 
             String serverUrl = System.getenv("GITHUB_SERVER_URL");
             String repo = System.getenv("GITHUB_REPOSITORY");

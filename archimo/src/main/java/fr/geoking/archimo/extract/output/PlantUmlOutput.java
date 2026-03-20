@@ -12,6 +12,8 @@ import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.ExternalHttpClient;
+import fr.geoking.archimo.extract.model.ExternalSystemHint;
+import fr.geoking.archimo.extract.model.InfrastructureTopology;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 
 import java.io.IOException;
@@ -51,7 +53,8 @@ public final class PlantUmlOutput implements DiagramOutput {
         writeArchitectureDiagram(outputDir, result.architectureInfos());
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
         writeEntityRelationshipDiagram(outputDir, result.entityRelations());
-        writeDeploymentDiagram(outputDir, result.architectureInfos(), result.endpointFlows(), result.messagingFlows(), result.entityRelations());
+        writeDeploymentDiagram(outputDir, result.architectureInfos(), result.endpointFlows(), result.messagingFlows(), result.entityRelations(),
+                result.infrastructureTopology());
         writeDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
         if (result.endpointFlows().size() <= MAX_ENDPOINT_SPECIFIC_DIAGRAMS) {
             writeEndpointDataLineageDiagram(outputDir, result.endpointFlows(), result.architectureInfos(), result.classDependencies(), result.entityRelations());
@@ -275,11 +278,16 @@ public final class PlantUmlOutput implements DiagramOutput {
                                         List<ArchitectureInfo> infos,
                                         List<EndpointFlow> endpointFlows,
                                         List<MessagingFlow> messagingFlows,
-                                        List<EntityRelation> entityRelations) throws IOException {
+                                        List<EntityRelation> entityRelations,
+                                        InfrastructureTopology infrastructureTopology) throws IOException {
+        InfrastructureTopology topo = infrastructureTopology != null ? infrastructureTopology : InfrastructureTopology.empty();
+        boolean hasManifestExternals = !topo.externalSystems().isEmpty();
         boolean hasApi = (endpointFlows != null && !endpointFlows.isEmpty()) || containsLayer(infos, "controller");
         boolean hasDb = containsLayer(infos, "repository") || (entityRelations != null && !entityRelations.isEmpty());
         boolean hasMessaging = messagingFlows != null && !messagingFlows.isEmpty();
-        if (!hasApi && !hasDb && !hasMessaging) return;
+        if (!hasApi && !hasDb && !hasMessaging && !hasManifestExternals) {
+            return;
+        }
 
         try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("deployment-diagram.puml")))) {
             pw.println("@startuml");
@@ -305,8 +313,63 @@ public final class PlantUmlOutput implements DiagramOutput {
                 pw.println("}");
                 pw.println("Rel(app, broker, \"Publish/Consume\")");
             }
+            writeManifestExternalSystemsPlantUml(pw, topo);
             pw.println("@enduml");
         }
+    }
+
+    private static void writeManifestExternalSystemsPlantUml(PrintWriter pw, InfrastructureTopology topo) {
+        List<ExternalSystemHint> hints = topo.externalSystems();
+        for (int i = 0; i < hints.size() && i < 18; i++) {
+            ExternalSystemHint h = hints.get(i);
+            String label = pumlEscape(h.label());
+            String tech = pumlEscape(techForExternalCategory(h.category()));
+            String wrap = "manifestWrap" + i;
+            String cid = "manifestC" + i;
+            switch (h.category()) {
+                case "DATABASE" -> {
+                    pw.println("Deployment_Node(" + wrap + ", \"Data store\", \"" + tech + "\") {");
+                    pw.println("  ContainerDb(" + cid + ", \"" + label + "\", \"" + tech + "\")");
+                    pw.println("}");
+                    pw.println("Rel(app, " + cid + ", \"SQL / driver\")");
+                }
+                case "MESSAGE_BUS_KAFKA", "MESSAGE_BUS_JMS" -> {
+                    pw.println("Deployment_Node(" + wrap + ", \"Messaging\", \"" + tech + "\") {");
+                    pw.println("  ContainerQueue(" + cid + ", \"" + label + "\", \"" + tech + "\")");
+                    pw.println("}");
+                    pw.println("Rel(app, " + cid + ", \"Client / broker\")");
+                }
+                default -> {
+                    pw.println("Deployment_Node(" + wrap + ", \"External system\", \"" + tech + "\") {");
+                    pw.println("  Container(" + cid + ", \"" + label + "\", \"" + tech + "\")");
+                    pw.println("}");
+                    pw.println("Rel(app, " + cid + ", \"Network\")");
+                }
+            }
+        }
+    }
+
+    private static String pumlEscape(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("\"", "'").replace("\n", " ").trim();
+    }
+
+    private static String techForExternalCategory(String category) {
+        if (category == null) {
+            return "External";
+        }
+        return switch (category) {
+            case "OBJECT_STORAGE" -> "S3 / object storage";
+            case "HTTP_GATEWAY" -> "API gateway";
+            case "REVERSE_PROXY" -> "Reverse proxy";
+            case "CACHE" -> "Cache";
+            case "SEARCH" -> "Search";
+            case "CLOUD_PROVIDER" -> "Cloud provider";
+            case "SAAS_HTTP" -> "SaaS / HTTP API";
+            default -> category.replace('_', ' ');
+        };
     }
 
     private void writeDataLineageDiagram(Path outputDir,

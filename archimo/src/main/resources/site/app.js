@@ -39,7 +39,7 @@
         index = await res.json();
       } catch (e) {
         console.error('Failed to load site-index.json', e);
-        index = { diagrams: [], modules: [], classes: [], events: [], endpoints: [], endpointSequences: [], commands: [], openApiSpecs: [], externalHttpClients: [] };
+        index = { diagrams: [], modules: [], classes: [], events: [], endpoints: [], endpointSequences: [], commands: [], openApiSpecs: [], externalHttpClients: [], deploymentFiles: [], deploymentContainers: [], deploymentK8sServices: [], deploymentIngresses: [], deploymentExternalSystems: [] };
       }
       if (!index.diagrams) index.diagrams = [];
       if (!index.modules) index.modules = [];
@@ -50,6 +50,11 @@
       if (!index.commands) index.commands = [];
       if (!index.openApiSpecs) index.openApiSpecs = [];
       if (!index.externalHttpClients) index.externalHttpClients = [];
+      if (!index.deploymentFiles) index.deploymentFiles = [];
+      if (!index.deploymentContainers) index.deploymentContainers = [];
+      if (!index.deploymentK8sServices) index.deploymentK8sServices = [];
+      if (!index.deploymentIngresses) index.deploymentIngresses = [];
+      if (!index.deploymentExternalSystems) index.deploymentExternalSystems = [];
       applyStateFromUrl();
       if (typeof mermaid !== 'undefined') {
         mermaid.initialize({
@@ -766,9 +771,11 @@
     const bpmnEl = document.getElementById('bpmnResults');
     const openApiEl = document.getElementById('openApiResults');
     const externalHttpEl = document.getElementById('externalHttpResults');
+    const deploymentInfraEl = document.getElementById('deploymentInfraResults');
+    const deploymentExternalEl = document.getElementById('deploymentExternalResults');
     const summaryEl = document.getElementById('resultsSummary');
 
-    if (!modulesEl || !classesEl || !eventsEl || !endpointsEl || !commandsEl || !architectureEl || !messagingEl || !bpmnEl || !openApiEl || !externalHttpEl || !summaryEl || !searchPanel) return;
+    if (!modulesEl || !classesEl || !eventsEl || !endpointsEl || !commandsEl || !architectureEl || !messagingEl || !bpmnEl || !openApiEl || !externalHttpEl || !deploymentInfraEl || !deploymentExternalEl || !summaryEl || !searchPanel) return;
 
     if (!term || term.length < 2) {
       searchPanel.classList.remove('active');
@@ -786,6 +793,8 @@
     bpmnEl.innerHTML = '';
     openApiEl.innerHTML = '';
     externalHttpEl.innerHTML = '';
+    deploymentInfraEl.innerHTML = '';
+    deploymentExternalEl.innerHTML = '';
 
     if (!index) return;
     const q = term.toLowerCase();
@@ -804,7 +813,18 @@
     const extHttp = (index.externalHttpClients || []).filter(h =>
       match(h.clientKind) || match(h.declaringClass) || match(h.detail));
 
-    summaryEl.textContent = `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${endpoints.length} endpoints, ${commands.length} commands, ${architecture.length} arch, ${messaging.length} msg, ${bpmn.length} bpmn, ${openApiSpecs.length} OpenAPI, ${extHttp.length} HTTP clients for "${term}"`;
+    const depFiles = (index.deploymentFiles || []).filter(f => match(f.relativePath) || match(f.kind));
+    const depContainers = (index.deploymentContainers || []).filter(c =>
+      match(c.name) || match(c.image) || match(c.sourcePath) || match(c.context) || (c.ports || []).some(p => match(String(p))));
+    const depK8sSvc = (index.deploymentK8sServices || []).filter(s =>
+      match(s.name) || match(s.namespace) || match(s.type) || match(s.sourcePath) || (s.ports || []).some(p => match(String(p))));
+    const depIng = (index.deploymentIngresses || []).filter(i =>
+      match(i.name) || match(i.namespace) || match(i.ingressClassName) || match(i.sourcePath)
+      || (i.hosts || []).some(h => match(h)) || (i.pathHints || []).some(p => match(p)));
+    const depExt = (index.deploymentExternalSystems || []).filter(x =>
+      match(x.category) || match(x.label) || match(x.evidence) || match(x.sourcePath));
+
+    summaryEl.textContent = `Found ${modules.length} modules, ${classes.length} classes, ${events.length} events, ${endpoints.length} endpoints, ${commands.length} commands, ${architecture.length} arch, ${messaging.length} msg, ${bpmn.length} bpmn, ${openApiSpecs.length} OpenAPI, ${extHttp.length} HTTP clients, ${depFiles.length + depContainers.length + depK8sSvc.length + depIng.length} infra hits, ${depExt.length} external systems for "${term}"`;
 
     modules.forEach(m => {
       const li = document.createElement('li');
@@ -869,6 +889,34 @@
       const li = document.createElement('li');
       li.textContent = `[${h.clientKind}] ${h.declaringClass} — ${h.detail}`;
       externalHttpEl.appendChild(li);
+    });
+
+    depFiles.forEach(f => {
+      const li = document.createElement('li');
+      li.textContent = `[${f.kind}] ${f.relativePath}`;
+      deploymentInfraEl.appendChild(li);
+    });
+    depContainers.forEach(c => {
+      const li = document.createElement('li');
+      const ports = (c.ports || []).join(', ');
+      li.textContent = `${c.name}: ${c.image} (${c.context})${ports ? ' ports: ' + ports : ''}`;
+      deploymentInfraEl.appendChild(li);
+    });
+    depK8sSvc.forEach(s => {
+      const li = document.createElement('li');
+      li.textContent = `Service ${s.name}${s.namespace ? ' ns=' + s.namespace : ''} [${s.type}] — ${(s.ports || []).join(', ')}`;
+      deploymentInfraEl.appendChild(li);
+    });
+    depIng.forEach(i => {
+      const li = document.createElement('li');
+      li.textContent = `Ingress ${i.name} class=${i.ingressClassName || '—'} hosts=${(i.hosts || []).join(', ')}`;
+      deploymentInfraEl.appendChild(li);
+    });
+
+    depExt.forEach(x => {
+      const li = document.createElement('li');
+      li.textContent = `[${x.category}] ${x.label} — ${x.evidence}`;
+      deploymentExternalEl.appendChild(li);
     });
   }
 

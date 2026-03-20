@@ -139,6 +139,7 @@ class ModulithExtractorTest {
         assertThat(jsonDir.resolve("endpoint-flows.json")).exists();
         assertThat(jsonDir.resolve("endpoint-sequences.json")).exists();
         assertThat(jsonDir.resolve("extract-result.json")).exists();
+        assertThat(jsonDir.resolve("infrastructure-topology.json")).exists();
     }
 
     @Test

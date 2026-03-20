@@ -157,6 +157,20 @@ main {
   color: var(--text-color);
 }
 
+.nav-level-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--secondary-text);
+  font-weight: 400;
+}
+
+.nav-level-hint a {
+  color: var(--accent-color, #2563eb);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .endpoint-legend {
   display: inline-block;
   margin-left: 0.35rem;

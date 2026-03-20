@@ -6,7 +6,7 @@
 
 Java 25 CLI and test integration to parse **Spring Modulith** applications and extract:
 
-- **C4 diagrams (PlantUML)** – all modules and per-module component diagrams  
+- **C4 diagrams (PlantUML)** – grouped in the report by the [C4 model](https://c4model.com/diagrams): L1–L4 (context, container, component, code) and supporting views (dynamic, deployment, data)  
 - **Module canvases (Asciidoc)** – beans, aggregates, events, config per module  
 - **Event map** – which modules publish/listen to which internal events  
 - **Flows & sequences** – event flows and **Mermaid** sequence/dependency diagrams  

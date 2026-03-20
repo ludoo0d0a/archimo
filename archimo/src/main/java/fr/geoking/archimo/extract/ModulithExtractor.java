@@ -20,6 +20,7 @@ import org.springframework.modulith.core.DependencyType;
 import fr.geoking.archimo.extract.model.ArchitectureInfo;
 import fr.geoking.archimo.extract.model.BpmnFlow;
 import fr.geoking.archimo.extract.model.ExternalHttpClient;
+import fr.geoking.archimo.extract.model.InfrastructureTopology;
 import fr.geoking.archimo.extract.model.MessagingFlow;
 import fr.geoking.archimo.extract.model.OpenApiSpecFile;
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -108,6 +109,8 @@ public final class ModulithExtractor {
         BpmnScanner bpmnScanner = new BpmnScanner();
         CompletableFuture<List<BpmnFlow>> bpmnFuture = CompletableFuture.supplyAsync(() -> bpmnScanner.scan(projectDir));
         CompletableFuture<List<OpenApiSpecFile>> openApiFuture = CompletableFuture.supplyAsync(() -> new OpenApiSpecScanner().scan(projectDir));
+        CompletableFuture<InfrastructureTopology> infrastructureFuture = CompletableFuture.supplyAsync(() ->
+                projectDir != null ? new InfrastructureScanner().scan(projectDir) : InfrastructureTopology.empty());
 
         final List<ArchitectureInfo> architectureInfos;
         final List<ClassDependency> classDependencies;
@@ -152,6 +155,7 @@ public final class ModulithExtractor {
 
         List<BpmnFlow> bpmnFlows = bpmnFuture.join();
         List<OpenApiSpecFile> openApiSpecFiles = openApiFuture.join();
+        InfrastructureTopology infrastructureTopology = infrastructureFuture.join();
         int bpmnFilesParsed = bpmnScanner.getFilesParsed();
 
         System.out.println("Parsed " + classesParsedCount + " classes and " + bpmnFilesParsed + " BPMN files.");
@@ -161,7 +165,7 @@ public final class ModulithExtractor {
         ExtractResult result = new ExtractResult(
                 eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,
                 endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos,
-                openApiSpecFiles, externalHttpClients, applicationMainClass, fullDependencyMode
+                openApiSpecFiles, externalHttpClients, infrastructureTopology, applicationMainClass, fullDependencyMode
         );
 
         // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
@@ -171,7 +175,7 @@ public final class ModulithExtractor {
 
         // 4. Generate static website (architecture-as-code navigation & search)
         writeSite(eventsMap, flows, endpointFlows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows,
-                openApiSpecFiles, externalHttpClients);
+                openApiSpecFiles, externalHttpClients, infrastructureTopology);
 
         // 5. Write JSON artifacts last (use absolute path so output location is unambiguous)
         Path jsonDir = outputDir.toAbsolutePath().resolve("json");
@@ -187,6 +191,7 @@ public final class ModulithExtractor {
         objectMapper.writeValue(jsonDir.resolve("endpoint-sequences.json").toFile(), buildEndpointSequencesIndex(endpointFlows));
         objectMapper.writeValue(jsonDir.resolve("open-api-specs.json").toFile(), openApiSpecFiles);
         objectMapper.writeValue(jsonDir.resolve("external-http-clients.json").toFile(), externalHttpClients);
+        objectMapper.writeValue(jsonDir.resolve("infrastructure-topology.json").toFile(), infrastructureTopology);
         objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
 
         return result;
@@ -270,7 +275,8 @@ public final class ModulithExtractor {
                            List<MessagingFlow> messagingFlows,
                            List<BpmnFlow> bpmnFlows,
                            List<OpenApiSpecFile> openApiSpecFiles,
-                           List<ExternalHttpClient> externalHttpClients) throws IOException {
+                           List<ExternalHttpClient> externalHttpClients,
+                           InfrastructureTopology infrastructureTopology) throws IOException {
 
         Path siteDir = outputDir.resolve("site");
         Files.createDirectories(siteDir);
@@ -294,6 +300,11 @@ public final class ModulithExtractor {
         List<Map<String, Object>> bpmnIndex = new ArrayList<>();
         List<Map<String, Object>> openApiIndex = new ArrayList<>();
         List<Map<String, Object>> externalHttpIndex = new ArrayList<>();
+        List<Map<String, Object>> deploymentFilesIndex = new ArrayList<>();
+        List<Map<String, Object>> deploymentContainersIndex = new ArrayList<>();
+        List<Map<String, Object>> deploymentK8sServicesIndex = new ArrayList<>();
+        List<Map<String, Object>> deploymentIngressesIndex = new ArrayList<>();
+        List<Map<String, Object>> deploymentExternalSystemsIndex = new ArrayList<>();
 
         // Modules and classes
         if (modules != null) {
@@ -388,6 +399,50 @@ public final class ModulithExtractor {
             return h;
         }).toList());
 
+        InfrastructureTopology topo = infrastructureTopology != null ? infrastructureTopology : InfrastructureTopology.empty();
+        deploymentFilesIndex.addAll(topo.files().stream().map(f -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("relativePath", f.relativePath());
+            m.put("kind", f.kind());
+            return m;
+        }).toList());
+        deploymentContainersIndex.addAll(topo.containers().stream().map(c -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", c.name());
+            m.put("image", c.image());
+            m.put("sourcePath", c.sourcePath());
+            m.put("context", c.context());
+            m.put("ports", c.ports());
+            return m;
+        }).toList());
+        deploymentK8sServicesIndex.addAll(topo.kubernetesServices().stream().map(s -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", s.name());
+            m.put("namespace", s.namespace());
+            m.put("type", s.type());
+            m.put("ports", s.ports());
+            m.put("sourcePath", s.sourcePath());
+            return m;
+        }).toList());
+        deploymentIngressesIndex.addAll(topo.ingresses().stream().map(i -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", i.name());
+            m.put("namespace", i.namespace());
+            m.put("ingressClassName", i.ingressClassName());
+            m.put("hosts", i.hosts());
+            m.put("pathHints", i.pathHints());
+            m.put("sourcePath", i.sourcePath());
+            return m;
+        }).toList());
+        deploymentExternalSystemsIndex.addAll(topo.externalSystems().stream().map(x -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("category", x.category());
+            m.put("label", x.label());
+            m.put("evidence", x.evidence());
+            m.put("sourcePath", x.sourcePath());
+            return m;
+        }).toList());
+
         // Site index JSON consumed by the SPA
         List<Map<String, Object>> endpointSequencesIndex = buildEndpointSequencesIndex(endpointFlows);
         Map<String, Object> siteIndex = new LinkedHashMap<>();
@@ -404,6 +459,11 @@ public final class ModulithExtractor {
         siteIndex.put("bpmn", bpmnIndex);
         siteIndex.put("openApiSpecs", openApiIndex);
         siteIndex.put("externalHttpClients", externalHttpIndex);
+        siteIndex.put("deploymentFiles", deploymentFilesIndex);
+        siteIndex.put("deploymentContainers", deploymentContainersIndex);
+        siteIndex.put("deploymentK8sServices", deploymentK8sServicesIndex);
+        siteIndex.put("deploymentIngresses", deploymentIngressesIndex);
+        siteIndex.put("deploymentExternalSystems", deploymentExternalSystemsIndex);
 
         objectMapper.writeValue(siteDir.resolve("site-index.json").toFile(), siteIndex);
     }
@@ -466,29 +526,57 @@ public final class ModulithExtractor {
         return diagrams;
     }
 
+    /**
+     * C4 static levels (L1–L4) and supporting diagram kinds (dynamic, deployment, data); see
+     * {@code https://c4model.com/diagrams}. {@code c4Level == 0} is the supporting-diagrams sidebar bucket.
+     */
     private Map<String, Object> buildPlantUmlDiagramIndexEntry(Path p, boolean inlineSources) throws IOException {
         String relative = outputDir.relativize(p).toString().replace('\\', '/');
         String fileName = p.getFileName().toString();
         String id = fileName.substring(0, fileName.length() - ".puml".length());
+        String lower = fileName.toLowerCase();
         int c4Level;
         String level;
         String category;
         String navLabel;
-        if ("components".equals(id) || fileName.toLowerCase().contains("modules") || fileName.toLowerCase().contains("context")) {
+        if ("system-context".equals(id)) {
             c4Level = 1;
             level = "system";
             category = "overview";
-            navLabel = id.replace("-", " ");
-        } else if (fileName.toLowerCase().contains("container")) {
+            navLabel = "System context";
+        } else if (lower.contains("container")) {
             c4Level = 2;
             level = "container";
             category = "container";
-            navLabel = "Containers";
-        } else if (id.startsWith("module-")) {
+            navLabel = id.replace("-", " ");
+        } else if ("components".equals(id) || id.startsWith("module-")) {
+            // Spring Modulith all-modules + per-module views are component-level (L3), not system context.
             c4Level = 3;
             level = "component";
             category = "module";
-            navLabel = id.replace("module-", "").replace(".", " / ");
+            navLabel = id.startsWith("module-")
+                    ? id.replace("module-", "").replace(".", " / ")
+                    : "All modules";
+        } else if ("architecture-layers".equals(id)) {
+            c4Level = 3;
+            level = "component";
+            category = "layers";
+            navLabel = "Architecture layers";
+        } else if ("architecture-class-diagram".equals(id) || "architecture-component-dependencies".equals(id)) {
+            c4Level = 4;
+            level = "code";
+            category = "code";
+            navLabel = "architecture-class-diagram".equals(id) ? "Class diagram" : "Component dependencies";
+        } else if ("deployment-diagram".equals(id)) {
+            c4Level = 0;
+            level = "deployment";
+            category = "deployment";
+            navLabel = "Deployment";
+        } else if ("data-lineage-diagram".equals(id) || "entity-relationship".equals(id)) {
+            c4Level = 0;
+            level = "data";
+            category = "data";
+            navLabel = "data-lineage-diagram".equals(id) ? "Data lineage" : "Entity relationship";
         } else if (id.startsWith("endpoint-sequence-")) {
             c4Level = 0;
             level = "endpoint";
@@ -504,26 +592,31 @@ public final class ModulithExtractor {
             level = "endpoint";
             category = "data";
             navLabel = formatEndpointDataLineageLabel(id);
-        } else if ("data-lineage-diagram".equals(id)) {
-            c4Level = 4;
-            level = "code";
-            category = "data";
-            navLabel = "Data lineage";
-        } else if ("entity-relationship".equals(id)) {
-            c4Level = 4;
-            level = "code";
-            category = "data";
-            navLabel = "Entity relationship";
-        } else if ("deployment-diagram".equals(id)) {
-            c4Level = 2;
-            level = "container";
-            category = "deployment";
-            navLabel = "Deployment diagram";
+        } else if ("architecture-flow".equals(id)
+                || "architecture-sequence".equals(id)
+                || "messaging-flows".equals(id)
+                || "bpmn-flows".equals(id)) {
+            c4Level = 0;
+            level = "dynamic";
+            category = switch (id) {
+                case "architecture-flow" -> "flow";
+                case "architecture-sequence" -> "sequence";
+                case "messaging-flows" -> "messaging";
+                case "bpmn-flows" -> "bpmn";
+                default -> "dynamic";
+            };
+            navLabel = switch (id) {
+                case "architecture-flow" -> "Architecture flow";
+                case "architecture-sequence" -> "Architecture sequence";
+                case "messaging-flows" -> "Messaging flows";
+                case "bpmn-flows" -> "BPMN flows";
+                default -> id.replace("-", " ");
+            };
         } else {
-            c4Level = 3;
-            level = "component";
-            category = "module";
-            navLabel = id;
+            c4Level = 0;
+            level = "other";
+            category = "generated";
+            navLabel = id.replace("-", " ");
         }
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("id", id);
@@ -570,7 +663,7 @@ public final class ModulithExtractor {
             category = "data";
             navLabel = "Entity relationship";
         } else if ("deployment-diagram".equals(id)) {
-            level = "container";
+            level = "deployment";
             category = "deployment";
             navLabel = "Deployment diagram";
         } else {

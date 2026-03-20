@@ -3,9 +3,12 @@ package fr.geoking.archimo;
 import fr.geoking.archimo.extract.ModulithExtractor;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.geoking.archimo.extract.model.ModuleDependency;
 import fr.geoking.archimo.model.ModuleEvents;
 import fr.geoking.archimo.sample.ecommerce.EcommerceApplication;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -13,7 +16,9 @@ import org.springframework.modulith.core.ApplicationModules;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -134,6 +139,35 @@ class ModulithExtractorTest {
         assertThat(jsonDir.resolve("endpoint-flows.json")).exists();
         assertThat(jsonDir.resolve("endpoint-sequences.json")).exists();
         assertThat(jsonDir.resolve("extract-result.json")).exists();
+    }
+
+    @Test
+    void parseSampleEcommerceProject_siteIndexReflectsC4Levels() throws Exception {
+        Path sampleProjectDir = findSampleProjectDir();
+        Assumptions.assumeTrue(sampleProjectDir != null);
+
+        ApplicationModules modules = ApplicationModules.of(EcommerceApplication.class);
+        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, sampleProjectDir);
+        extractor.extract();
+
+        Path siteIndex = outputDir.resolve("site/site-index.json");
+        assertThat(siteIndex).exists();
+        ObjectMapper om = new ObjectMapper();
+        JsonNode root = om.readTree(siteIndex.toFile());
+        JsonNode diagrams = root.get("diagrams");
+        assertThat(diagrams != null && diagrams.isArray()).isTrue();
+        Map<String, Integer> plantUmlLevels = new HashMap<>();
+        for (JsonNode e : diagrams) {
+            if (!"plantuml".equals(e.path("format").asText())) {
+                continue;
+            }
+            plantUmlLevels.put(e.path("id").asText(), e.path("c4Level").asInt());
+        }
+        assertThat(plantUmlLevels.get("system-context")).isEqualTo(1);
+        assertThat(plantUmlLevels.get("components")).isEqualTo(3);
+        assertThat(plantUmlLevels.get("architecture-flow")).isEqualTo(0);
+        assertThat(plantUmlLevels.get("architecture-sequence")).isEqualTo(0);
+        assertThat(plantUmlLevels.get("architecture-class-diagram")).isEqualTo(4);
     }
 
     @Test

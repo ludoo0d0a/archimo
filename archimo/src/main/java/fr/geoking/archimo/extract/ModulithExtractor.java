@@ -13,6 +13,7 @@ import fr.geoking.archimo.extract.model.SequenceFlow;
 import fr.geoking.archimo.extract.output.DiagramOutput;
 import fr.geoking.archimo.extract.output.DiagramOutputFactory;
 import fr.geoking.archimo.extract.output.OutputFormat;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.springframework.modulith.core.ApplicationModule;
@@ -201,11 +202,11 @@ public final class ModulithExtractor {
         );
 
         C4ReportTree scannedTree = C4ReportTreeBuilder.build(modules, result);
-        Optional<C4ReportTree> manifest = Optional.empty();
+        Optional<ArchimoManifestLoader.ManifestLoad> manifestLoad = Optional.empty();
         if (projectDir != null) {
             try {
-                manifest = ArchimoManifestLoader.loadIfPresent(projectDir);
-                if (manifest.isPresent()) {
+                manifestLoad = ArchimoManifestLoader.loadFull(projectDir);
+                if (manifestLoad.isPresent()) {
                     System.out.println("Loaded architecture manifest: "
                             + projectDir.resolve(ArchimoManifestLoader.MANIFEST_FILE_NAME).toAbsolutePath());
                 }
@@ -213,7 +214,8 @@ public final class ModulithExtractor {
                 System.err.println("WARN: could not read archimo.mf: " + e.getMessage());
             }
         }
-        c4ReportTree = C4ReportTreeMerger.merge(manifest.orElse(null), scannedTree, w -> System.err.println("WARN: " + w));
+        c4ReportTree = C4ReportTreeMerger.merge(manifestLoad.map(ArchimoManifestLoader.ManifestLoad::tree).orElse(null),
+                scannedTree, w -> System.err.println("WARN: " + w));
 
         // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
         for (DiagramOutput output : DiagramOutputFactory.create(outputFormats)) {
@@ -221,8 +223,12 @@ public final class ModulithExtractor {
         }
 
         // 4. Generate static website (architecture-as-code navigation & search)
+        JsonNode archimoManifestOriginalJson = null;
+        if (manifestLoad.isPresent()) {
+            archimoManifestOriginalJson = manifestLoad.get().rawJson();
+        }
         writeSite(eventsMap, flows, endpointFlows, commandFlows, moduleDependencies, architectureInfos, messagingFlows, bpmnFlows,
-                openApiSpecFiles, externalHttpClients, infrastructureTopology);
+                openApiSpecFiles, externalHttpClients, infrastructureTopology, archimoManifestOriginalJson);
 
         // 5. Write JSON artifacts last (use absolute path so output location is unambiguous)
         Path jsonDir = outputDir.toAbsolutePath().resolve("json");
@@ -325,7 +331,8 @@ public final class ModulithExtractor {
                            List<BpmnFlow> bpmnFlows,
                            List<OpenApiSpecFile> openApiSpecFiles,
                            List<ExternalHttpClient> externalHttpClients,
-                           InfrastructureTopology infrastructureTopology) throws IOException {
+                           InfrastructureTopology infrastructureTopology,
+                           JsonNode archimoManifestOriginal) throws IOException {
 
         Path siteDir = outputDir.resolve("site");
         Files.createDirectories(siteDir);
@@ -514,6 +521,7 @@ public final class ModulithExtractor {
         siteIndex.put("deploymentIngresses", deploymentIngressesIndex);
         siteIndex.put("deploymentExternalSystems", deploymentExternalSystemsIndex);
         siteIndex.put("c4ReportTree", c4ReportTree);
+        siteIndex.put("archimoManifestOriginal", archimoManifestOriginal);
 
         objectMapper.writeValue(siteDir.resolve("site-index.json").toFile(), siteIndex);
     }

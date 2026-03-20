@@ -1,9 +1,11 @@
 package fr.geoking.archimo.extract;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import fr.geoking.archimo.extract.model.report.C4Element;
+import fr.geoking.archimo.extract.model.report.C4ElementOrigin;
 import fr.geoking.archimo.extract.model.report.C4Group;
 import fr.geoking.archimo.extract.model.report.C4LevelSection;
 import fr.geoking.archimo.extract.model.report.C4ReportTree;
@@ -24,6 +26,11 @@ public final class ArchimoManifestLoader {
 
     public static final String MANIFEST_FILE_NAME = "archimo.mf";
 
+    /**
+     * Normalized tree plus raw JSON (for embedding in the static report and export round-trip).
+     */
+    public record ManifestLoad(C4ReportTree tree, JsonNode rawJson) {}
+
     private ArchimoManifestLoader() {}
 
     public static ObjectMapper manifestMapper() {
@@ -36,6 +43,13 @@ public final class ArchimoManifestLoader {
      * Reads and normalizes {@code projectRoot/archimo.mf} if the file exists.
      */
     public static Optional<C4ReportTree> loadIfPresent(Path projectRoot) throws IOException {
+        return loadFull(projectRoot).map(ManifestLoad::tree);
+    }
+
+    /**
+     * Reads manifest file as both parsed tree and raw JSON (deep copy for storage).
+     */
+    public static Optional<ManifestLoad> loadFull(Path projectRoot) throws IOException {
         if (projectRoot == null || !Files.isDirectory(projectRoot)) {
             return Optional.empty();
         }
@@ -43,8 +57,10 @@ public final class ArchimoManifestLoader {
         if (!Files.isRegularFile(mf)) {
             return Optional.empty();
         }
-        C4ReportTree raw = manifestMapper().readValue(mf.toFile(), C4ReportTree.class);
-        return Optional.of(normalizeTree(raw));
+        ObjectMapper mapper = manifestMapper();
+        JsonNode raw = mapper.readTree(mf.toFile());
+        C4ReportTree parsed = mapper.treeToValue(raw, C4ReportTree.class);
+        return Optional.of(new ManifestLoad(normalizeTree(parsed), raw.deepCopy()));
     }
 
     public static C4ReportTree normalizeTree(C4ReportTree t) {
@@ -97,13 +113,15 @@ public final class ArchimoManifestLoader {
     }
 
     private static C4Element normalizeElement(C4Element e) {
+        C4ElementOrigin origin = e.origin() != null ? e.origin() : C4ElementOrigin.MANUAL;
         return new C4Element(
                 e.id(),
                 e.kind(),
                 e.label() != null ? e.label() : e.id(),
                 e.technology() != null ? e.technology() : "",
                 e.attributes() != null ? e.attributes() : java.util.Map.of(),
-                e.links() != null ? e.links() : List.of()
+                e.links() != null ? e.links() : List.of(),
+                origin
         );
     }
 

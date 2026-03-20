@@ -68,6 +68,155 @@ header h1 {
   gap: 1rem;
 }
 
+/* C4 model sidebar */
+.c4-model-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.c4-model-tree {
+  font-size: 0.8rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 0.375rem;
+  padding: 0.5rem;
+  background: var(--bg-color);
+}
+
+.c4-model-section {
+  margin-bottom: 0.75rem;
+}
+
+.c4-model-section h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--secondary-text);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.c4-model-group {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.c4-model-group li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.c4-model-group li:last-child {
+  border-bottom: none;
+}
+
+.c4-el-label {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.c4-el-kind {
+  font-size: 0.65rem;
+  opacity: 0.85;
+}
+
+.c4-origin {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+}
+
+.c4-origin-auto {
+  background: var(--nav-hover);
+  color: var(--secondary-text);
+}
+
+.c4-origin-manual {
+  background: var(--accent-bg);
+  color: var(--accent-color);
+}
+
+/* Modal */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.modal-panel {
+  position: relative;
+  z-index: 1;
+  max-width: 28rem;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--card-bg);
+  color: var(--text-color);
+  border-radius: 0.5rem;
+  box-shadow: var(--shadow-lg);
+  padding: 1.25rem;
+}
+
+.modal-panel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.modal-hint {
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  color: var(--secondary-text);
+}
+
+.c4-add-form label {
+  display: block;
+  margin-bottom: 0.65rem;
+  font-size: 0.85rem;
+}
+
+.c4-add-form input,
+.c4-add-form select {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.25rem;
+  background: var(--bg-color);
+  color: var(--text-color);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 #themeToggle {
   background: transparent;
   border: 1px solid var(--border-color);

@@ -1,5 +1,6 @@
 package fr.geoking.archimo.extract;
 
+import fr.geoking.archimo.extract.model.report.C4ElementOrigin;
 import fr.geoking.archimo.extract.model.report.C4ReportTree;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -48,5 +49,6 @@ class ArchimoManifestLoaderTest {
         C4ReportTree t = ArchimoManifestLoader.loadIfPresent(projectRoot).orElseThrow();
         assertThat(t.levelSections()).hasSize(1);
         assertThat(t.levelSections().get(0).groups().get(0).elements().get(0).id()).isEqualTo("partner_x");
+        assertThat(t.levelSections().get(0).groups().get(0).elements().get(0).origin()).isEqualTo(C4ElementOrigin.MANUAL);
     }
 }

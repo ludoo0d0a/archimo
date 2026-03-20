@@ -2,6 +2,7 @@ package fr.geoking.archimo.extract;
 
 import fr.geoking.archimo.extract.model.report.C4Element;
 import fr.geoking.archimo.extract.model.report.C4ElementKind;
+import fr.geoking.archimo.extract.model.report.C4ElementOrigin;
 import fr.geoking.archimo.extract.model.report.C4Group;
 import fr.geoking.archimo.extract.model.report.C4LevelSection;
 import fr.geoking.archimo.extract.model.report.C4OutboundLink;
@@ -24,7 +25,8 @@ class C4ReportTreeMergerTest {
                 "Acme Payments",
                 "SaaS",
                 Map.of(),
-                List.of());
+                List.of(),
+                C4ElementOrigin.MANUAL);
         C4Group g1 = new C4Group("l1-context", "L1", 0, new ArrayList<>(List.of(ext)));
         C4LevelSection l1 = new C4LevelSection(1, "L1", List.of(g1));
         C4ReportTree manifest = new C4ReportTree("FromManifest", null, List.of(l1), List.of());
@@ -43,6 +45,10 @@ class C4ReportTreeMergerTest {
         C4LevelSection sec = merged.levelSections().stream().filter(s -> s.level() == 1).findFirst().orElseThrow();
         List<C4Element> els = sec.groups().get(0).elements();
         assertThat(els.stream().map(C4Element::id).toList()).contains("ext_acme", "user", "app");
+        assertThat(els.stream().filter(e -> "ext_acme".equals(e.id())).findFirst().orElseThrow().origin())
+                .isEqualTo(C4ElementOrigin.MANUAL);
+        assertThat(els.stream().filter(e -> "app".equals(e.id())).findFirst().orElseThrow().origin())
+                .isEqualTo(C4ElementOrigin.AUTO);
         assertThat(warnings).isNotEmpty();
     }
 

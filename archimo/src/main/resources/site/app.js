@@ -22,6 +22,297 @@
     return base64;
   }
 
+  const LS_C4_OVERLAY = 'archimo.userC4Overlay';
+
+  function loadC4Overlay() {
+    try {
+      const raw = localStorage.getItem(LS_C4_OVERLAY);
+      if (!raw) return { elements: [] };
+      const o = JSON.parse(raw);
+      if (!o || !Array.isArray(o.elements)) return { elements: [] };
+      return o;
+    } catch (e) {
+      return { elements: [] };
+    }
+  }
+
+  function saveC4Overlay(overlay) {
+    localStorage.setItem(LS_C4_OVERLAY, JSON.stringify(overlay));
+  }
+
+  function deepClone(o) {
+    return o == null ? o : JSON.parse(JSON.stringify(o));
+  }
+
+  function getMergedC4ReportTree() {
+    const base = index && index.c4ReportTree ? deepClone(index.c4ReportTree) : { levelSections: [] };
+    if (!base.levelSections) base.levelSections = [];
+    const overlay = loadC4Overlay();
+    for (const item of overlay.elements || []) {
+      const level = Number(item.level);
+      const groupId = item.groupId;
+      const el = item.element;
+      if (!el || !el.id || !Number.isFinite(level) || !groupId) continue;
+      let sec = base.levelSections.find(s => s.level === level);
+      if (!sec) {
+        sec = { level, title: 'Level ' + level, groups: [] };
+        base.levelSections.push(sec);
+        base.levelSections.sort((a, b) => a.level - b.level);
+      }
+      if (!sec.groups) sec.groups = [];
+      let grp = sec.groups.find(g => g.groupId === groupId);
+      if (!grp) {
+        grp = { groupId, title: groupId, sortOrder: 0, elements: [] };
+        sec.groups.push(grp);
+      }
+      if (!grp.elements) grp.elements = [];
+      const merged = { ...el, origin: 'MANUAL' };
+      const idx = grp.elements.findIndex(e => e.id === merged.id);
+      if (idx >= 0) grp.elements[idx] = merged;
+      else grp.elements.push(merged);
+    }
+    return base;
+  }
+
+  function pumlEscape(s) {
+    if (s == null || s === '') return '';
+    return String(s).replace(/\\/g, '\\\\').replace(/"/g, "'");
+  }
+
+  function collectDeclaredPlantUmlIds(src) {
+    const ids = new Set();
+    if (!src) return ids;
+    const re = /\b(?:Person_Ext|System|System_Ext|Container|ContainerDb)\(\s*([a-zA-Z0-9_]+)/g;
+    let m;
+    while ((m = re.exec(src)) !== null) ids.add(m[1]);
+    return ids;
+  }
+
+  function plantUmlLabelWithManual(el) {
+    const base = el.label != null ? el.label : '';
+    const manual = el.origin === 'MANUAL' || (el.id && String(el.id).startsWith('user_'));
+    const withTag = manual ? base + '\\n<size:10>[Manual]</size>' : base;
+    return pumlEscape(withTag);
+  }
+
+  function plantUmlLineL1(el) {
+    const label = plantUmlLabelWithManual(el);
+    const tech = pumlEscape(el.technology || '');
+    const k = el.kind;
+    if (k === 'PERSON') return `Person_Ext(${el.id}, "${label}", "${tech}")`;
+    if (k === 'SOFTWARE_SYSTEM') return `System(${el.id}, "${label}", "${tech}")`;
+    if (k === 'EXTERNAL_SYSTEM' || k === 'MESSAGE_BROKER') return `System_Ext(${el.id}, "${label}", "${tech}")`;
+    return '';
+  }
+
+  function plantUmlRelLines(fromId, links) {
+    if (!links || !links.length) return [];
+    return links.map(l => {
+      const lab = pumlEscape(l.label || '');
+      const t = l.technology;
+      if (t != null && String(t).trim() !== '') {
+        return `Rel(${fromId}, ${l.targetElementId}, "${lab}", "${pumlEscape(t)}")`;
+      }
+      return `Rel(${fromId}, ${l.targetElementId}, "${lab}")`;
+    });
+  }
+
+  function insertBeforeClosingSystemBoundary(src, insertion) {
+    const start = src.indexOf('System_Boundary');
+    if (start < 0) return src + insertion;
+    const open = src.indexOf('{', start);
+    if (open < 0) return src + insertion;
+    let depth = 0;
+    for (let i = open; i < src.length; i++) {
+      const c = src[i];
+      if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) {
+          return src.slice(0, i) + insertion + src.slice(i);
+        }
+      }
+    }
+    return src + insertion;
+  }
+
+  /**
+   * Injects localStorage user overlay elements into PlantUML (L1/L2) before Kroki.
+   */
+  function injectUserPlantUml(source, diagramId, userOverlayElements) {
+    if (!source || !userOverlayElements || !userOverlayElements.length) return source;
+    const declared = collectDeclaredPlantUmlIds(source);
+    const toAdd = [];
+    const rels = [];
+    if (diagramId === 'system-context') {
+      for (const u of userOverlayElements) {
+        if (Number(u.level) !== 1 || u.groupId !== 'l1-context') continue;
+        const el = u.element;
+        if (!el || declared.has(el.id)) continue;
+        const line = plantUmlLineL1(el);
+        if (line) {
+          toAdd.push(line);
+          declared.add(el.id);
+        }
+        rels.push(...plantUmlRelLines(el.id, el.links));
+      }
+      if (!toAdd.length && !rels.length) return source;
+      const block = [...toAdd, ...rels].join('\n') + '\n';
+      return source.replace(/@enduml/gi, block + '@enduml');
+    }
+    if (diagramId === 'c4-containers') {
+      const persons = [];
+      const inside = [];
+      for (const u of userOverlayElements) {
+        if (Number(u.level) !== 2 || u.groupId !== 'l2-containers') continue;
+        const el = u.element;
+        if (!el || declared.has(el.id)) continue;
+        const label = plantUmlLabelWithManual(el);
+        const tech = pumlEscape(el.technology || '');
+        const k = el.kind;
+        if (k === 'PERSON') {
+          persons.push(`Person_Ext(${el.id}, "${label}", "${tech}")`);
+          declared.add(el.id);
+          rels.push(...plantUmlRelLines(el.id, el.links));
+        } else if (k === 'CONTAINER') {
+          inside.push(`  Container(${el.id}, "${label}", "${tech}")`);
+          declared.add(el.id);
+          rels.push(...plantUmlRelLines(el.id, el.links));
+        } else if (k === 'DATABASE') {
+          inside.push(`  ContainerDb(${el.id}, "${label}", "${tech}")`);
+          declared.add(el.id);
+          rels.push(...plantUmlRelLines(el.id, el.links));
+        }
+      }
+      let s = source;
+      if (persons.length) {
+        const bi = s.indexOf('System_Boundary');
+        if (bi >= 0) s = s.slice(0, bi) + persons.join('\n') + '\n' + s.slice(bi);
+        else s = persons.join('\n') + '\n' + s;
+      }
+      if (inside.length) s = insertBeforeClosingSystemBoundary(s, inside.join('\n') + '\n');
+      if (rels.length) s = s.replace(/@enduml/gi, rels.join('\n') + '\n@enduml');
+      return s;
+    }
+    return source;
+  }
+
+  function effectivePlantUmlSource(d) {
+    if (!d || d.format !== 'plantuml' || !d.source) return d ? d.source : '';
+    const id = d.id != null ? String(d.id) : '';
+    if (id !== 'system-context' && id !== 'c4-containers') return d.source;
+    return injectUserPlantUml(d.source, id, loadC4Overlay().elements || []);
+  }
+
+  function mergeManifestForExport(original, overlay) {
+    const base =
+      original && typeof original === 'object'
+        ? deepClone(original)
+        : { levelSections: [] };
+    if (!base.levelSections) base.levelSections = [];
+    for (const item of overlay.elements || []) {
+      const level = Number(item.level);
+      const groupId = item.groupId;
+      const el = item.element;
+      if (!el || !el.id || !Number.isFinite(level) || !groupId) continue;
+      let sec = base.levelSections.find(s => s.level === level);
+      if (!sec) {
+        sec = { level, title: 'Level ' + level, groups: [] };
+        base.levelSections.push(sec);
+        base.levelSections.sort((a, b) => a.level - b.level);
+      }
+      if (!sec.groups) sec.groups = [];
+      let grp = sec.groups.find(g => g.groupId === groupId);
+      if (!grp) {
+        grp = { groupId, title: groupId, sortOrder: 0, elements: [] };
+        sec.groups.push(grp);
+      }
+      if (!grp.elements) grp.elements = [];
+      const clean = { ...el };
+      delete clean.origin;
+      const idx = grp.elements.findIndex(e => e.id === clean.id);
+      if (idx >= 0) grp.elements[idx] = clean;
+      else grp.elements.push(clean);
+    }
+    return base;
+  }
+
+  function refreshC4ModelPanel() {
+    const el = document.getElementById('c4ModelTree');
+    if (!el) return;
+    const tree = getMergedC4ReportTree();
+    if (!tree.levelSections || !tree.levelSections.length) {
+      el.innerHTML = '<p class="nav-level-hint">No C4 tree in this report.</p>';
+      return;
+    }
+    const parts = [];
+    for (const sec of tree.levelSections) {
+      parts.push(`<div class="c4-model-section"><h4 class="c4-model-level">L${sec.level} — ${escapeHtml(sec.title || '')}</h4><ul class="c4-model-group">`);
+      for (const g of sec.groups || []) {
+        for (const e of g.elements || []) {
+          const origin = e.origin === 'MANUAL' ? 'manual' : 'auto';
+          parts.push(
+            '<li><span class="c4-el-label">' +
+              escapeHtml(e.label || e.id || '') +
+              '</span> <span class="c4-origin c4-origin-' +
+              origin +
+              '">' +
+              origin +
+              '</span> <code class="c4-el-kind">' +
+              escapeHtml(e.kind || '') +
+              '</code></li>'
+          );
+        }
+      }
+      parts.push('</ul></div>');
+    }
+    el.innerHTML = parts.join('');
+  }
+
+  function openC4AddModal() {
+    const modal = document.getElementById('c4AddModal');
+    if (!modal) return;
+    syncC4KindOptions();
+    modal.classList.remove('hidden');
+    document.getElementById('c4AddLabel').value = '';
+    document.getElementById('c4AddTech').value = '';
+    document.getElementById('c4AddLinkTarget').value = '';
+    document.getElementById('c4AddLinkLabel').value = '';
+  }
+
+  function closeC4Modal() {
+    const modal = document.getElementById('c4AddModal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  function syncC4KindOptions() {
+    const level = Number(document.getElementById('c4AddLevel').value);
+    const sel = document.getElementById('c4AddKind');
+    if (!sel) return;
+    const l1 = ['PERSON', 'SOFTWARE_SYSTEM', 'EXTERNAL_SYSTEM', 'MESSAGE_BROKER'];
+    const l2 = ['PERSON', 'CONTAINER', 'DATABASE'];
+    const opts = level === 2 ? l2 : l1;
+    sel.innerHTML = opts.map(k => `<option value="${k}">${k}</option>`).join('');
+    const gid = document.getElementById('c4AddGroupId');
+    if (gid) {
+      gid.value = level === 2 ? 'l2-containers' : 'l1-context';
+    }
+  }
+
+  function exportArchimoManifest() {
+    const merged = mergeManifestForExport(index && index.archimoManifestOriginal, loadC4Overlay());
+    const blob = new Blob([JSON.stringify(merged, null, 2)], { type: 'application/json;charset=utf-8' });
+    if (typeof saveAs !== 'undefined') {
+      saveAs(blob, 'archimo.mf');
+    } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'archimo.mf';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+  }
+
   function showError(msg) {
     const titleEl = document.getElementById('diagramViewerTitle');
     const viewerEl = document.getElementById('diagramViewer');
@@ -39,7 +330,7 @@
         index = await res.json();
       } catch (e) {
         console.error('Failed to load site-index.json', e);
-        index = { diagrams: [], modules: [], classes: [], events: [], endpoints: [], endpointSequences: [], commands: [], openApiSpecs: [], externalHttpClients: [], deploymentFiles: [], deploymentContainers: [], deploymentK8sServices: [], deploymentIngresses: [], deploymentExternalSystems: [] };
+        index = { diagrams: [], modules: [], classes: [], events: [], endpoints: [], endpointSequences: [], commands: [], openApiSpecs: [], externalHttpClients: [], deploymentFiles: [], deploymentContainers: [], deploymentK8sServices: [], deploymentIngresses: [], deploymentExternalSystems: [], c4ReportTree: null, archimoManifestOriginal: null };
       }
       if (!index.diagrams) index.diagrams = [];
       if (!index.modules) index.modules = [];
@@ -55,6 +346,8 @@
       if (!index.deploymentK8sServices) index.deploymentK8sServices = [];
       if (!index.deploymentIngresses) index.deploymentIngresses = [];
       if (!index.deploymentExternalSystems) index.deploymentExternalSystems = [];
+      if (!index.c4ReportTree) index.c4ReportTree = { levelSections: [], diagramSlots: [] };
+      if (!('archimoManifestOriginal' in index)) index.archimoManifestOriginal = null;
       applyStateFromUrl();
       if (typeof mermaid !== 'undefined') {
         mermaid.initialize({
@@ -65,6 +358,7 @@
       }
       bindUI();
       renderDiagramLists();
+      refreshC4ModelPanel();
       renderEndpointList();
       renderSearch(initialSearchTerm);
       await selectInitialDiagram();
@@ -139,6 +433,53 @@
     if (exportPdfBtn) exportPdfBtn.onclick = () => void exportCurrentDiagram('pdf');
     if (exportAllZipBtn) exportAllZipBtn.onclick = () => exportAllAsZip();
     if (printAllBtn) printAllBtn.onclick = () => printAllDiagrams();
+
+    const c4Level = document.getElementById('c4AddLevel');
+    if (c4Level) c4Level.addEventListener('change', () => syncC4KindOptions());
+    const addC4Btn = document.getElementById('addC4ElementBtn');
+    const exportMfBtn = document.getElementById('exportManifestBtn');
+    if (addC4Btn) addC4Btn.addEventListener('click', () => openC4AddModal());
+    if (exportMfBtn) exportMfBtn.addEventListener('click', () => exportArchimoManifest());
+    const c4Modal = document.getElementById('c4AddModal');
+    if (c4Modal) {
+      c4Modal.addEventListener('click', e => {
+        if (e.target.dataset.closeModal) closeC4Modal();
+      });
+    }
+    const c4Form = document.getElementById('c4AddForm');
+    if (c4Form) {
+      c4Form.addEventListener('submit', e => {
+        e.preventDefault();
+        const level = Number(document.getElementById('c4AddLevel').value);
+        const groupId = document.getElementById('c4AddGroupId').value;
+        const kind = document.getElementById('c4AddKind').value;
+        const label = document.getElementById('c4AddLabel').value.trim();
+        const technology = document.getElementById('c4AddTech').value.trim();
+        const linkTarget = document.getElementById('c4AddLinkTarget').value.trim();
+        const linkLabel = document.getElementById('c4AddLinkLabel').value.trim();
+        const uid =
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? 'user_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+            : 'user_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        const links = [];
+        if (linkTarget) {
+          links.push({ targetElementId: linkTarget, label: linkLabel || 'Relates to', technology: null });
+        }
+        const element = { id: uid, kind, label, technology, attributes: {}, links, origin: 'MANUAL' };
+        const overlay = loadC4Overlay();
+        overlay.elements.push({ level, groupId, element });
+        saveC4Overlay(overlay);
+        closeC4Modal();
+        refreshC4ModelPanel();
+        if (
+          selectedDiagram &&
+          selectedDiagram.format === 'plantuml' &&
+          (selectedDiagram.id === 'system-context' || selectedDiagram.id === 'c4-containers')
+        ) {
+          void selectDiagram(selectedDiagram);
+        }
+      });
+    }
 
     const coverageFilters = document.getElementById('endpointCoverageFilters');
     if (coverageFilters) {
@@ -474,9 +815,14 @@
 
     await ensureDiagramSource(d);
 
+    let renderSource = d.source;
+    if (d.source && d.format === 'plantuml') {
+      renderSource = effectivePlantUmlSource(d);
+    }
+
     if (d.source) {
       if (viewSourceBtn) viewSourceBtn.classList.remove('hidden');
-      if (sourceText) sourceText.textContent = d.source;
+      if (sourceText) sourceText.textContent = renderSource;
     } else {
       if (viewSourceBtn) viewSourceBtn.classList.add('hidden');
     }
@@ -493,7 +839,7 @@
       const searchInput = document.getElementById('searchInput');
       if (searchInput && searchInput.value) highlightInDiagram(searchInput.value.trim());
     } else if (d.format === 'plantuml') {
-      await renderPlantUmlKroki(viewerEl, d.source);
+      await renderPlantUmlKroki(viewerEl, renderSource);
       const searchInput = document.getElementById('searchInput');
       if (searchInput && searchInput.value) highlightInDiagram(searchInput.value.trim());
     } else {
@@ -578,7 +924,11 @@
   async function exportCurrentDiagram(format) {
     if (!selectedDiagram) return;
     await ensureDiagramSource(selectedDiagram);
-    const encoded = encodeKroki(selectedDiagram.source);
+    const src =
+      selectedDiagram.format === 'plantuml'
+        ? effectivePlantUmlSource(selectedDiagram)
+        : selectedDiagram.source;
+    const encoded = encodeKroki(src);
     if (!encoded) return;
     const type = selectedDiagram.format === 'mermaid' ? 'mermaid' : 'plantuml';
     const url = `https://kroki.io/${type}/${format}/${encoded}`;
@@ -616,7 +966,8 @@
     try {
       for (const d of index.diagrams) {
         await ensureDiagramSource(d);
-        const encoded = encodeKroki(d.source);
+        const src = d.format === 'plantuml' ? effectivePlantUmlSource(d) : d.source;
+        const encoded = encodeKroki(src);
         if (!encoded) continue;
         const type = d.format === 'mermaid' ? 'mermaid' : 'plantuml';
         const url = `https://kroki.io/${type}/png/${encoded}`;
@@ -674,7 +1025,8 @@
           container.innerHTML = svg;
         } catch (e) { console.error(e); }
       } else {
-        const encoded = encodeKroki(d.source);
+        const pumlSrc = d.format === 'plantuml' ? effectivePlantUmlSource(d) : d.source;
+        const encoded = encodeKroki(pumlSrc);
         if (encoded) {
           try {
             const res = await fetch(`https://kroki.io/plantuml/svg/${encoded}`);

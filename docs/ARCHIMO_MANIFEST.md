@@ -59,6 +59,7 @@ Each item:
 | `technology` | string | Optional technology or free-text description. |
 | `attributes` | object | String map for extra metadata (optional). |
 | `links` | array | Outbound **relationships** to other elements by id. |
+| `origin` | string | Optional. `AUTO` (from scanning) or `MANUAL` (from this file or the report UI). **`AUTO` is omitted** in JSON when serializing the merged tree. Elements loaded from `archimo.mf` default to **`MANUAL`**. |
 
 ### `links` (on an element)
 
@@ -116,6 +117,28 @@ Each slot describes one diagram entry for the report UI:
    - For the **same id**, **label, kind, technology, and attributes** are taken from the **scan**; if they differ from the manifest, Archimo logs a **warning** on stderr.  
    - **Links** are **unioned** (same `targetElementId` + `label` deduped). If only **technology** differs on a duplicate link, Archimo **warns** and keeps the **scanned** link.  
 4. The merged tree drives **PlantUML**, **Mermaid**, **`architecture.json`** (with `-o json`), **`json/c4-report-tree.json`**, and **`site/site-index.json`**.
+
+**Origins after merge**
+
+- Any element **id** that appeared in the manifest keeps **`MANUAL`** (even when label/kind/technology are taken from the scan for that id).  
+- Elements **only from the scan** are **`AUTO`**.  
+- **PlantUML** L1/L2 diagrams append a small **`[Manual]`** line on the element label for **`MANUAL`** nodes so Kroki-rendered diagrams show the distinction.
+
+---
+
+## Report UI (`site/`)
+
+The static report includes:
+
+- **`c4ReportTree`** — merged model (with `origin` on elements where relevant).  
+- **`archimoManifestOriginal`** — JSON snapshot of **`archimo.mf`** from the last extraction (or `null` if the file was absent).
+
+In the sidebar **C4 model**:
+
+- Lists all elements with **manual** / **auto** badges.  
+- **Add element…** saves **browser-only** entries under localStorage key **`archimo.userC4Overlay`** (shape: `{ "elements": [ { "level", "groupId", "element" } ] }`). New ids are `user_<suffix>` and are tagged **`MANUAL`**.  
+- **Export archimo.mf** downloads a JSON document that **deep-merges** `archimoManifestOriginal` with the overlay (overlay wins on same `id` within the same level/group). The `origin` field is **stripped** from the download so the file stays a clean manifest.  
+- **PlantUML** diagrams **system-context** and **c4-containers** are patched **in the browser** before Kroki so overlay elements appear without re-running Archimo. Other diagrams are unchanged.
 
 ---
 
@@ -206,6 +229,7 @@ After merge, scanner elements in the same group (e.g. `user`, `app`, inferred HT
 
 - Loader: `fr.geoking.archimo.extract.ArchimoManifestLoader`  
 - Merge: `fr.geoking.archimo.extract.C4ReportTreeMerger`  
-- Model: `fr.geoking.archimo.extract.model.report.*`  
+- Model: `fr.geoking.archimo.extract.model.report.*` (including `C4ElementOrigin`)  
+- PlantUML L1/L2 from tree: `fr.geoking.archimo.extract.output.PlantUmlOutput`  
 
 CLI overview: **[USAGE.md](../USAGE.md)**.

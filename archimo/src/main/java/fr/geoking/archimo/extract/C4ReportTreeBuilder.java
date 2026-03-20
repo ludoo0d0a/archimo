@@ -162,7 +162,7 @@ public final class C4ReportTreeBuilder {
             }
             List<C4Element> withLinks = moduleElements.stream()
                     .map(e -> new C4Element(e.id(), e.kind(), e.label(), e.technology(), e.attributes(),
-                            List.copyOf(linksByFrom.getOrDefault(e.id(), List.of()))))
+                            List.copyOf(linksByFrom.getOrDefault(e.id(), List.of())), e.origin()))
                     .toList();
             groups.add(new C4Group("l3-modules", "Spring Modulith modules", 0, withLinks));
         }
@@ -226,7 +226,7 @@ public final class C4ReportTreeBuilder {
                 }
                 List<C4OutboundLink> nl = new ArrayList<>(fromEl.links());
                 nl.add(new C4OutboundLink(toId, "depends on", null));
-                byId.put(fromId, new C4Element(fromEl.id(), fromEl.kind(), fromEl.label(), fromEl.technology(), fromEl.attributes(), nl));
+                byId.put(fromId, new C4Element(fromEl.id(), fromEl.kind(), fromEl.label(), fromEl.technology(), fromEl.attributes(), nl, fromEl.origin()));
             }
             List<C4Group> regrouped = groups.stream()
                     .map(g -> new C4Group(g.groupId(), g.title(), g.sortOrder(),

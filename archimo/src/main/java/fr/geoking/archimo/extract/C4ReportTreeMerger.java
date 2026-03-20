@@ -1,6 +1,7 @@
 package fr.geoking.archimo.extract;
 
 import fr.geoking.archimo.extract.model.report.C4Element;
+import fr.geoking.archimo.extract.model.report.C4ElementOrigin;
 import fr.geoking.archimo.extract.model.report.C4Group;
 import fr.geoking.archimo.extract.model.report.C4LevelSection;
 import fr.geoking.archimo.extract.model.report.C4OutboundLink;
@@ -240,7 +241,8 @@ public final class C4ReportTreeMerger {
                 e.label(),
                 e.technology(),
                 e.attributes() != null ? Map.copyOf(e.attributes()) : Map.of(),
-                List.copyOf(nullSafe(e.links()))
+                List.copyOf(nullSafe(e.links())),
+                e.origin()
         );
     }
 
@@ -249,7 +251,7 @@ public final class C4ReportTreeMerger {
         Map<String, String> attrs = e.attributes() != null
                 ? new LinkedHashMap<>(e.attributes())
                 : new LinkedHashMap<>();
-        return new C4Element(e.id(), e.kind(), e.label(), e.technology(), attrs, links);
+        return new C4Element(e.id(), e.kind(), e.label(), e.technology(), attrs, links, e.origin());
     }
 
     private static <T> List<T> nullSafe(List<T> list) {

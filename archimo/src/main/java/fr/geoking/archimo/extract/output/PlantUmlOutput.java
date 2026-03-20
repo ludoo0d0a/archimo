@@ -4,6 +4,7 @@ import fr.geoking.archimo.extract.C4ReportTreeBuilder;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.report.C4Element;
 import fr.geoking.archimo.extract.model.report.C4ElementKind;
+import fr.geoking.archimo.extract.model.report.C4ElementOrigin;
 import fr.geoking.archimo.extract.model.report.C4OutboundLink;
 import fr.geoking.archimo.extract.model.report.C4ReportTree;
 import org.springframework.modulith.core.ApplicationModules;
@@ -132,9 +133,9 @@ public final class PlantUmlOutput implements DiagramOutput {
             pw.println("System_Boundary(sys, \"" + c4Escape(tree.applicationShortName()) + "\") {");
             for (C4Element el : elements) {
                 if (el.kind() == C4ElementKind.CONTAINER) {
-                    pw.println("  Container(" + el.id() + ", \"" + c4Escape(el.label()) + "\", \"" + c4Escape(el.technology()) + "\")");
+                    pw.println("  Container(" + el.id() + ", \"" + plantUmlElementLabel(el) + "\", \"" + c4Escape(el.technology()) + "\")");
                 } else if (el.kind() == C4ElementKind.DATABASE) {
-                    pw.println("  ContainerDb(" + el.id() + ", \"" + c4Escape(el.label()) + "\", \"" + c4Escape(el.technology()) + "\")");
+                    pw.println("  ContainerDb(" + el.id() + ", \"" + plantUmlElementLabel(el) + "\", \"" + c4Escape(el.technology()) + "\")");
                 }
             }
             pw.println("}");
@@ -148,7 +149,7 @@ public final class PlantUmlOutput implements DiagramOutput {
     }
 
     private static void emitContextPlantUml(PrintWriter pw, C4Element el) {
-        String label = c4Escape(el.label());
+        String label = plantUmlElementLabel(el);
         String tech = c4Escape(el.technology());
         switch (el.kind()) {
             case PERSON -> pw.println("Person_Ext(" + el.id() + ", \"" + label + "\", \"" + tech + "\")");
@@ -161,7 +162,16 @@ public final class PlantUmlOutput implements DiagramOutput {
     }
 
     private static void emitPersonContainerView(PrintWriter pw, C4Element el) {
-        pw.println("Person_Ext(" + el.id() + ", \"" + c4Escape(el.label()) + "\", \"" + c4Escape(el.technology()) + "\")");
+        pw.println("Person_Ext(" + el.id() + ", \"" + plantUmlElementLabel(el) + "\", \"" + c4Escape(el.technology()) + "\")");
+    }
+
+    /** Appends a visible [Manual] line for manifest / UI-origin elements. */
+    private static String plantUmlElementLabel(C4Element el) {
+        String base = el.label() != null ? el.label() : "";
+        if (el.origin() != C4ElementOrigin.MANUAL) {
+            return c4Escape(base);
+        }
+        return c4Escape(base + "\\n<size:10>[Manual]</size>");
     }
 
     private static void emitContextRel(PrintWriter pw, String fromId, C4OutboundLink link) {

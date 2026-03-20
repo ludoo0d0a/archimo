@@ -6,6 +6,13 @@ import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.C4ReportTreeBuilder;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.report.C4Element;
+import fr.geoking.archimo.extract.model.report.C4ElementKind;
+import fr.geoking.archimo.extract.model.report.C4ElementOrigin;
+import fr.geoking.archimo.extract.model.report.C4Group;
+import fr.geoking.archimo.extract.model.report.C4LevelSection;
+import fr.geoking.archimo.extract.model.report.C4OutboundLink;
+import fr.geoking.archimo.extract.model.report.C4ReportTree;
 import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import fr.geoking.archimo.extract.model.ExternalHttpClient;
 import fr.geoking.archimo.extract.model.InfrastructureTopology;
@@ -16,6 +23,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,6 +31,25 @@ class PlantUmlOutputTest {
 
     @TempDir
     Path outputDir;
+
+    @Test
+    void systemContextIncludesManualTagForManualOriginElements() throws Exception {
+        List<C4OutboundLink> userLinks = List.of(new C4OutboundLink("app", "Uses", "HTTPS"));
+        C4Element user = new C4Element("user", C4ElementKind.PERSON, "User", "d", Map.of(), userLinks, C4ElementOrigin.AUTO);
+        C4Element app = new C4Element("app", C4ElementKind.SOFTWARE_SYSTEM, "The App", "Java", Map.of(), List.of(), C4ElementOrigin.AUTO);
+        C4Element partner = new C4Element("partner_x", C4ElementKind.EXTERNAL_SYSTEM, "Partner", "HTTPS", Map.of(), List.of(), C4ElementOrigin.MANUAL);
+        C4Group g = new C4Group("l1-context", "Actors", 0, List.of(user, app, partner));
+        C4ReportTree tree = new C4ReportTree("App", "com.ex.App", List.of(new C4LevelSection(1, "L1", List.of(g))), List.of());
+        ExtractResult result = new ExtractResult(
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), InfrastructureTopology.empty(), "com.ex.App", false, FrameworkDesignInsights.empty());
+
+        new PlantUmlOutput().write(null, outputDir, result, tree);
+
+        String puml = Files.readString(outputDir.resolve("system-context.puml"));
+        assertThat(puml).contains("partner_x");
+        assertThat(puml).contains("[Manual]");
+    }
 
     @Test
     void writesClassArchitectureDiagramForNonModulithProjects() throws Exception {

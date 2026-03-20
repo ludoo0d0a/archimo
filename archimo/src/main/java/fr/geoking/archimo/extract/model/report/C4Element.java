@@ -18,5 +18,34 @@ public record C4Element(
         String label,
         String technology,
         Map<String, String> attributes,
-        List<C4OutboundLink> links
-) {}
+        List<C4OutboundLink> links,
+        @JsonInclude(value = JsonInclude.Include.CUSTOM, valueFilter = C4Element.ExcludeAutoOrigin.class)
+        C4ElementOrigin origin
+) {
+    public C4Element {
+        if (origin == null) {
+            origin = C4ElementOrigin.AUTO;
+        }
+    }
+
+    /** Scan-built element (default origin). */
+    public C4Element(String id, C4ElementKind kind, String label, String technology,
+                     Map<String, String> attributes, List<C4OutboundLink> links) {
+        this(id, kind, label, technology, attributes, links, C4ElementOrigin.AUTO);
+    }
+
+    /**
+     * Jackson: exclude {@code origin} from JSON when {@link C4ElementOrigin#AUTO} (or null).
+     */
+    static final class ExcludeAutoOrigin {
+        @Override
+        public boolean equals(Object o) {
+            return o == null || o == C4ElementOrigin.AUTO;
+        }
+
+        @Override
+        public int hashCode() {
+            return 1;
+        }
+    }
+}

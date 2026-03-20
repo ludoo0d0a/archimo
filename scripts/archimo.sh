@@ -12,8 +12,33 @@ VERSION=1.2.0
 JAR_NAME="${ARCHIMO_JAR:-archimo.jar}"
 RELEASE_URL="${ARCHIMO_URL:-https://github.com/ludoo0d0a/archimo/releases/download/v$VERSION/archimo-release.jar}"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)"
+# Default positional arguments
+POS_PROJECT_DIR="."
+POS_SKIP_TEXT="true"
+POS_RECOMPILE="false"
+
+# Simple positional argument parsing (max 3, if not starting with -)
+if [ $# -ge 1 ] && ! echo "$1" | grep -q '^-'; then
+  POS_PROJECT_DIR="$1"
+  shift
+  if [ $# -ge 1 ] && ! echo "$1" | grep -q '^-'; then
+    POS_SKIP_TEXT="$1"
+    shift
+    if [ $# -ge 1 ] && ! echo "$1" | grep -q '^-'; then
+      POS_RECOMPILE="$1"
+      shift
+    fi
+  fi
+fi
+
+# Make PROJECT_DIR absolute before we cd into it
+PROJECT_DIR="$(cd "$POS_PROJECT_DIR" >/dev/null 2>&1 && pwd || echo "$POS_PROJECT_DIR")"
+
+# Make JAR_NAME absolute so it's accessible after cd
+case "$JAR_NAME" in
+  /*) JAR_PATH="$JAR_NAME" ;;
+  *)  JAR_PATH="$(pwd)/$JAR_NAME" ;;
+esac
 
 if [ -f "$JAR_NAME" ] && [ -s "$JAR_NAME" ] && [ "${ARCHIMO_FORCE_DOWNLOAD:-0}" != "1" ]; then
   echo "Using local jar: $JAR_NAME"
@@ -32,33 +57,8 @@ else
   fi
 fi
 
-# If there is a Maven project here, build it like ModulithExtractorMain does
-if [ -f "$PROJECT_DIR/pom.xml" ]; then
-  MVN_BIN="${MAVEN_HOME:+$MAVEN_HOME/bin/mvn}"
-
-  # Prefer a real `mvn` if available; otherwise fall back to Maven Wrapper in project root (`../mvnw`).
-  if [ -n "${MVN_BIN:-}" ] && [ -x "$MVN_BIN" ]; then
-    MVN_RUNNER="$MVN_BIN"
-    MVN_IS_WRAPPER=0
-  elif command -v mvn >/dev/null 2>&1; then
-    MVN_RUNNER="mvn"
-    MVN_IS_WRAPPER=0
-  elif [ -f "$PROJECT_DIR/mvnw" ]; then
-    MVN_RUNNER="$PROJECT_DIR/mvnw"
-    MVN_IS_WRAPPER=1
-  else
-    echo "ERROR: Maven not found (`mvn`) and Maven Wrapper not present (`$PROJECT_DIR/mvnw`)." >&2
-    exit 1
-  fi
-
-  echo "Detected pom.xml. Running: mvn compile dependency:copy-dependencies -DincludeScope=compile"
-  MVN_QUIET_ARGS="-q -B -ntp"
-  if [ "$MVN_IS_WRAPPER" -eq 1 ]; then
-    (cd "$PROJECT_DIR" && if [ -x "$MVN_RUNNER" ]; then "$MVN_RUNNER" $MVN_QUIET_ARGS compile dependency:copy-dependencies -DincludeScope=compile; else sh "$MVN_RUNNER" $MVN_QUIET_ARGS compile dependency:copy-dependencies -DincludeScope=compile; fi)
-  else
-    (cd "$PROJECT_DIR" && "$MVN_RUNNER" $MVN_QUIET_ARGS compile dependency:copy-dependencies -DincludeScope=compile)
-  fi
-fi
+# Build logic moved to the Java JAR (Project Mode).
+# We only ensure we are in the project directory if it was provided positionally.
 
 JAVA_BIN="${JAVA_HOME:+$JAVA_HOME/bin/java}"
 if [ -z "${JAVA_BIN:-}" ]; then
@@ -85,7 +85,7 @@ for arg in "$@"; do
   esac
 done
 
-"$JAVA_BIN" -jar "$JAR_NAME" "$@"
+"$JAVA_BIN" -jar "$JAR_PATH" --project-dir="$PROJECT_DIR" --skip-text="$POS_SKIP_TEXT" --recompile="$POS_RECOMPILE" "$@"
 RET="$?"
 
 REPORT_FILE=""

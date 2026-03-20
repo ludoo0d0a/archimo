@@ -34,7 +34,7 @@ public final class ModulithExtractorMain {
             return;
         }
 
-        if (config.projectDir != null) {
+        if (config.projectDir != null && !config.internalChild) {
             runProjectMode(config);
             return;
         }
@@ -70,7 +70,7 @@ public final class ModulithExtractorMain {
                 System.exit(1);
             }
 
-            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode);
+            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.skipTests, config.recompile, false);
             runProjectMode(newConfig);
 
         } catch (Exception e) {
@@ -86,9 +86,16 @@ public final class ModulithExtractorMain {
             Path classes = target.resolve("classes");
             Path dependencyDir = target.resolve("dependency");
 
-            if (!java.nio.file.Files.isDirectory(classes) || !java.nio.file.Files.isDirectory(dependencyDir)) {
-                System.err.println("Project not built. Running: mvn compile dependency:copy-dependencies -DincludeScope=compile");
-                int exit = runMaven(projectDir, "compile", "dependency:copy-dependencies", "-DincludeScope=compile");
+            if (config.recompile || !java.nio.file.Files.isDirectory(classes) || !java.nio.file.Files.isDirectory(dependencyDir)) {
+                System.err.println("Project build required. Running: mvn compile dependency:copy-dependencies -DincludeScope=compile" + (config.skipTests ? " -DskipTests" : ""));
+                List<String> goals = new ArrayList<>();
+                goals.add("compile");
+                goals.add("dependency:copy-dependencies");
+                goals.add("-DincludeScope=compile");
+                if (config.skipTests) {
+                    goals.add("-DskipTests");
+                }
+                int exit = runMaven(projectDir, goals.toArray(new String[0]));
                 if (exit != 0) {
                     System.err.println("Maven build failed.");
                     System.exit(1);
@@ -125,6 +132,15 @@ public final class ModulithExtractorMain {
             if (config.fullDependencyMode) {
                 javaArgs.add("--full-dependency-mode");
             }
+            if (config.skipTests) {
+                javaArgs.add("--skip-tests");
+            } else {
+                javaArgs.add("--no-skip-tests");
+            }
+            if (config.recompile) {
+                javaArgs.add("--recompile");
+            }
+            javaArgs.add("--internal-child");
 
             Path argsFile = Files.createTempFile(target, "archimo-java-args-", ".txt");
             Files.write(argsFile, javaArgs);
@@ -345,9 +361,9 @@ public final class ModulithExtractorMain {
         System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.ModulithExtractorMain --app-class=<fqcn> [--output-dir=<path>]");
         System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.ModulithExtractorMain --base-package=<package> [--output-dir=<path>]");
         System.err.println("  Project mode (builds with Maven then extracts):");
-        System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--output-dir=<path>] [--full-dependency-mode]");
+        System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--output-dir=<path>] [--full-dependency-mode] [--skip-text] [--recompile]");
         System.err.println("  GitHub mode (clones repo, builds with Maven then extracts):");
-        System.err.println("    java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--output-dir=<path>] [--full-dependency-mode]");
+        System.err.println("    java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--output-dir=<path>] [--full-dependency-mode] [--skip-text] [--recompile]");
         System.err.println("  Workflow generation:");
         System.err.println("    java -jar archimo-all.jar --generate-workflow");
     }
@@ -360,8 +376,11 @@ public final class ModulithExtractorMain {
         final String githubUrl;
         final boolean generateWorkflow;
         final boolean fullDependencyMode;
+        final boolean skipTests;
+        final boolean recompile;
+        final boolean internalChild;
 
-        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode) {
+        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode, boolean skipTests, boolean recompile, boolean internalChild) {
             this.projectDir = projectDir;
             this.appClass = appClass;
             this.basePackage = basePackage;
@@ -369,6 +388,9 @@ public final class ModulithExtractorMain {
             this.githubUrl = githubUrl;
             this.generateWorkflow = generateWorkflow;
             this.fullDependencyMode = fullDependencyMode;
+            this.skipTests = skipTests;
+            this.recompile = recompile;
+            this.internalChild = internalChild;
         }
 
         static Config parse(String[] args) {
@@ -379,6 +401,9 @@ public final class ModulithExtractorMain {
             String githubUrl = null;
             boolean generateWorkflow = false;
             boolean fullDependencyMode = false;
+            boolean skipTests = true;
+            boolean recompile = false;
+            boolean internalChild = false;
             for (String a : args) {
                 if (a.startsWith("--project-dir=")) projectDir = new java.io.File(a.substring("--project-dir=".length()));
                 else if (a.startsWith("--app-class=")) appClass = a.substring("--app-class=".length()).trim();
@@ -387,10 +412,15 @@ public final class ModulithExtractorMain {
                 else if (a.startsWith("--github-url=")) githubUrl = a.substring("--github-url=".length()).trim();
                 else if (a.equals("--generate-workflow")) generateWorkflow = true;
                 else if (a.equals("--full-dependency-mode")) fullDependencyMode = true;
+                else if (a.equals("--skip-tests") || a.equals("--skip-text") || a.equals("--skip-tests=true") || a.equals("--skip-text=true")) skipTests = true;
+                else if (a.equals("--no-skip-tests") || a.equals("--skip-tests=false") || a.equals("--skip-text=false")) skipTests = false;
+                else if (a.equals("--recompile") || a.equals("--recompile=true")) recompile = true;
+                else if (a.equals("--recompile=false")) recompile = false;
+                else if (a.equals("--internal-child")) internalChild = true;
             }
             if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow) return null;
             if (projectDir != null && !projectDir.isDirectory()) return null;
-            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode);
+            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, skipTests, recompile, internalChild);
         }
     }
 }

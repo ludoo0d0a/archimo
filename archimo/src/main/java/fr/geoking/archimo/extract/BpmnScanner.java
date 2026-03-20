@@ -16,6 +16,8 @@ import java.util.stream.Stream;
 
 public class BpmnScanner {
 
+    private int filesParsed = 0;
+
     public List<BpmnFlow> scan(Path projectDir) {
         List<BpmnFlow> flows = new ArrayList<>();
         if (projectDir == null || !Files.isDirectory(projectDir)) {
@@ -24,11 +26,18 @@ public class BpmnScanner {
 
         try (Stream<Path> paths = Files.walk(projectDir)) {
             paths.filter(p -> p.toString().endsWith(".bpmn") || p.toString().endsWith(".bpmn20.xml"))
-                 .forEach(p -> flows.addAll(parseBpmn(p)));
+                 .forEach(p -> {
+                     flows.addAll(parseBpmn(p));
+                     filesParsed++;
+                 });
         } catch (Exception e) {
             System.err.println("Error scanning BPMN files: " + e.getMessage());
         }
         return flows;
+    }
+
+    public int getFilesParsed() {
+        return filesParsed;
     }
 
     private List<BpmnFlow> parseBpmn(Path bpmnFile) {

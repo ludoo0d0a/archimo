@@ -86,7 +86,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>fr.geoking.archimo.extract.ModulithExtractorMain</mainClass>
+                            <mainClass>fr.geoking.archimo.extract.ArchimoMain</mainClass>
                             <addClasspath>true</addClasspath>
                             <classpathPrefix>lib/</classpathPrefix>
                         </manifest>
@@ -124,7 +124,7 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>fr.geoking.archimo.extract.ModulithExtractorMain</mainClass>
+                                    <mainClass>fr.geoking.archimo.extract.ArchimoMain</mainClass>
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>

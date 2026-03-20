@@ -32,7 +32,7 @@ else
   fi
 fi
 
-# If there is a Maven project here, build it like ModulithExtractorMain does
+# If there is a Maven project here, build it like ArchimoMain does
 if [ -f "$PROJECT_DIR/pom.xml" ]; then
   MVN_BIN="${MAVEN_HOME:+$MAVEN_HOME/bin/mvn}"
 
@@ -91,7 +91,7 @@ RET="$?"
 REPORT_FILE=""
 
 if [ -n "${OUTPUT_DIR_ARG:-}" ]; then
-  # ModulithExtractorMain writes the site under: <outputDir>/site/index.html
+  # ArchimoMain writes the site under: <outputDir>/site/index.html
   if echo "$OUTPUT_DIR_ARG" | grep -q '^/'; then
     REPORT_FILE="$OUTPUT_DIR_ARG/site/index.html"
   else

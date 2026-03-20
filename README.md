@@ -15,7 +15,7 @@ Java 17 CLI and test integration to parse **Spring Modulith** applications and e
 ## Quick start
 
 ```bash
-mvn package
+mvn package -DskipTests
 java -jar target/archimo-1.0.0-SNAPSHOT-all.jar --project-dir=/path/to/your/modulith-app --output-dir=./docs
 ```
 

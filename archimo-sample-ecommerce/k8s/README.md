@@ -21,9 +21,10 @@ Illustrative manifests for **Archimo** infrastructure scanning and documentation
 ## Usage
 
 ```bash
-# Build the app image (from archimo-sample-ecommerce/)
+# Build the app image and NGINX front image (from archimo-sample-ecommerce/)
 mvn -q -DskipTests package
 docker build -t archimo-sample-ecommerce:local .
+docker build -f Dockerfile.nginx -t archimo-sample-ecommerce-nginx:local .
 
 kubectl apply -f k8s/
 ```
@@ -38,5 +39,5 @@ Replace Secret placeholders before any real cluster. Tune images, storage, and i
 - `10-mariadb.yaml`, `11-redis.yaml`, `12-zookeeper.yaml`, `13-kafka.yaml` — data & messaging  
 - `20-ecommerce-app.yaml` — app Deployment/Service (GCP WI annotation)  
 - `21-api-gateway.yaml` — Spring Cloud Gateway  
-- `30-nginx-frontend.yaml` — NGINX + static `index.html` ConfigMap  
+- `30-nginx-frontend.yaml` — NGINX Deployment (image from `Dockerfile.nginx`, static files in `nginx/html/`) + `default.conf` ConfigMap  
 - `40-ingress.yaml` — NGINX Ingress (adjust host)

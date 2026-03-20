@@ -2,6 +2,7 @@ package fr.geoking.archimo;
 
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import fr.geoking.archimo.extract.model.InfrastructureTopology;
 import fr.geoking.archimo.extract.model.ModuleDependency;
 import fr.geoking.archimo.extract.model.SequenceFlow;
@@ -49,7 +50,8 @@ class MermaidOutputTest {
                 List.of(),   // externalHttpClients
                 InfrastructureTopology.empty(),
                 null,        // applicationMainClass
-                false        // fullDependencyMode
+                false,       // fullDependencyMode
+                FrameworkDesignInsights.empty()
         );
 
         new MermaidOutput().write(null, outputDir, result);
@@ -94,7 +96,8 @@ class MermaidOutputTest {
                 List.of(),
                 InfrastructureTopology.empty(),
                 "com.example.petclinic.PetclinicApplication",
-                false
+                false,
+                FrameworkDesignInsights.empty()
         );
 
         new MermaidOutput().write(null, outputDir, result);
@@ -172,7 +175,8 @@ class MermaidOutputTest {
                 List.of(),
                 InfrastructureTopology.empty(),
                 null,
-                true
+                true,
+                FrameworkDesignInsights.empty()
         );
 
         new MermaidOutput().write(null, outputDir, result);

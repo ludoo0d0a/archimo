@@ -6,7 +6,12 @@ import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.EventFlow;
+import fr.geoking.archimo.extract.model.ArchUnitRuleRef;
+import fr.geoking.archimo.extract.model.DesignEdge;
+import fr.geoking.archimo.extract.model.DesignFinding;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
+import fr.geoking.archimo.extract.model.JmoleculesElement;
 import fr.geoking.archimo.extract.model.ExternalSystemHint;
 import fr.geoking.archimo.extract.model.InfrastructureTopology;
 import fr.geoking.archimo.extract.model.MessagingFlow;
@@ -56,6 +61,127 @@ public final class MermaidOutput implements DiagramOutput {
         }
         writeMessagingFlows(outputDir, result.messagingFlows());
         writeBpmnSequences(outputDir, result.bpmnFlows());
+        writeFrameworkInsightsDiagrams(outputDir, result.frameworkDesignInsights());
+    }
+
+    private void writeFrameworkInsightsDiagrams(Path outputDir, FrameworkDesignInsights insights) throws IOException {
+        if (insights == null || !insights.emitFrameworkDiagrams()) {
+            return;
+        }
+        Path mermaidDir = outputDir.resolve("mermaid");
+        Files.createDirectories(mermaidDir);
+        writeJmoleculesModelMmd(mermaidDir, insights);
+        writeArchUnitRulesMmd(mermaidDir, insights);
+        writeDesignFindingsMmd(mermaidDir, insights);
+    }
+
+    private void writeJmoleculesModelMmd(Path mermaidDir, FrameworkDesignInsights insights) throws IOException {
+        if (insights.jmoleculesElements().isEmpty()) {
+            return;
+        }
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("jmolecules-model.mmd")))) {
+            pw.println("%% jMolecules-tagged types and dependencies (from bytecode + class dependency graph)");
+            pw.println("flowchart TB");
+            for (JmoleculesElement el : insights.jmoleculesElements()) {
+                String id = sanitizeId(el.className());
+                String label = shortClassName(el.className()) + "\\n" + String.join(", ", el.stereotypes());
+                pw.println("  " + id + "[\"" + escapeMermaidLabel(label) + "\"]");
+            }
+            for (DesignEdge e : insights.jmoleculesEdges()) {
+                pw.println("  " + sanitizeId(e.fromClass()) + " -->|" + escapeMermaidEdgeLabel(e.kind()) + "| "
+                        + sanitizeId(e.toClass()));
+            }
+            pw.println("  classDef jmDomainEvent fill:#fff8e1,stroke:#f57f17,stroke-width:1px");
+            pw.println("  classDef jmAggregate fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px");
+            pw.println("  classDef jmOther fill:#e3f2fd,stroke:#1565c0,stroke-width:1px");
+            List<String> eventIds = new ArrayList<>();
+            List<String> aggIds = new ArrayList<>();
+            List<String> otherIds = new ArrayList<>();
+            for (JmoleculesElement el : insights.jmoleculesElements()) {
+                String id = sanitizeId(el.className());
+                if (el.stereotypes().stream().anyMatch(s -> s.contains("DomainEvent"))) {
+                    eventIds.add(id);
+                } else if (el.stereotypes().stream().anyMatch(s -> s.contains("AggregateRoot"))) {
+                    aggIds.add(id);
+                } else {
+                    otherIds.add(id);
+                }
+            }
+            if (!eventIds.isEmpty()) {
+                pw.println("  class " + String.join(",", eventIds) + " jmDomainEvent");
+            }
+            if (!aggIds.isEmpty()) {
+                pw.println("  class " + String.join(",", aggIds) + " jmAggregate");
+            }
+            if (!otherIds.isEmpty()) {
+                pw.println("  class " + String.join(",", otherIds) + " jmOther");
+            }
+        }
+    }
+
+    private void writeArchUnitRulesMmd(Path mermaidDir, FrameworkDesignInsights insights) throws IOException {
+        boolean any = insights.archUnitDeclaredInBuild() || insights.archUnitTypesReferencedInBytecode() || !insights.archUnitRuleRefs().isEmpty();
+        if (!any) {
+            return;
+        }
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("archunit-rules-overview.mmd")))) {
+            pw.println("%% ArchUnit: declared dependencies, compiled rule holders — violations are not evaluated here");
+            pw.println("flowchart TB");
+            pw.println("  archimoNote(\"Run ArchUnit tests (e.g. mvn test) for violations; Archimo only maps rule structure.\")");
+            if (insights.archUnitDeclaredInBuild()) {
+                pw.println("  build[\"Build declares ArchUnit\"]");
+            }
+            if (insights.archUnitTypesReferencedInBytecode()) {
+                pw.println("  byte[\"Bytecode references com.tngtech.archunit\"]");
+            }
+            for (ArchUnitRuleRef ref : insights.archUnitRuleRefs()) {
+                String id = sanitizeId(ref.className());
+                StringBuilder detail = new StringBuilder(shortClassName(ref.className()));
+                if (ref.analyzeClassesPresent()) {
+                    detail.append("\\n@AnalyzeClasses");
+                }
+                if (!ref.staticArchRuleFieldNames().isEmpty()) {
+                    detail.append("\\nstatic ArchRule: ").append(String.join(", ", ref.staticArchRuleFieldNames()));
+                }
+                if (!ref.archTestMethodNames().isEmpty()) {
+                    detail.append("\\n@ArchTest methods: ").append(String.join(", ", ref.archTestMethodNames()));
+                }
+                pw.println("  " + id + "[\"" + escapeMermaidLabel(detail.toString()) + "\"]");
+            }
+        }
+    }
+
+    private void writeDesignFindingsMmd(Path mermaidDir, FrameworkDesignInsights insights) throws IOException {
+        if (insights.findings().isEmpty()) {
+            return;
+        }
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(mermaidDir.resolve("design-findings.mmd")))) {
+            pw.println("%% Heuristic design notes (constraints / smells) — not ArchUnit execution results");
+            pw.println("flowchart TB");
+            int i = 0;
+            for (DesignFinding f : insights.findings()) {
+                String id = "finding_" + i++;
+                String sev = f.severity() != null ? f.severity() : "";
+                String msg = sev + ": " + f.code() + "\\n" + f.message();
+                if (f.relatedClass() != null) {
+                    msg += "\\n→ " + f.relatedClass();
+                }
+                pw.println("  " + id + "{{\"" + escapeMermaidLabel(msg) + "\"}}");
+            }
+        }
+    }
+
+    private static String shortClassName(String fqcn) {
+        int dot = fqcn.lastIndexOf('.');
+        return dot < 0 ? fqcn : fqcn.substring(dot + 1);
+    }
+
+    private static String escapeMermaidLabel(String s) {
+        return s.replace("\"", "'");
+    }
+
+    private static String escapeMermaidEdgeLabel(String s) {
+        return s.replace("\"", "'");
     }
 
     private void writeMermaidEventAndCommandFlows(Path outputDir, List<EventFlow> flows) throws IOException {

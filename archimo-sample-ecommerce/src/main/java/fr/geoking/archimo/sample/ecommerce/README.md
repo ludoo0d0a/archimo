@@ -46,7 +46,7 @@ Cross-module events are between different top-level modules; internal events are
 
 ## Kubernetes sample
 
-Under **`k8s/`**: illustrative manifests (MariaDB, Redis, Kafka + ZooKeeper, NGINX front, Spring Cloud Gateway, app `Deployment`, Ingress, ConfigMap/Secret for AWS S3, Google OAuth/GCP WI, Stripe, Visa, Mailchimp). See `k8s/README.md` and build the app image with the repo-root **`Dockerfile`**.
+Under **`k8s/`**: illustrative manifests (MariaDB, Redis, Kafka + ZooKeeper, NGINX front, Spring Cloud Gateway, app `Deployment`, Ingress, ConfigMap/Secret for AWS S3, Google OAuth/GCP WI, Stripe, Visa, Mailchimp). See `k8s/README.md`. Build the app JAR image with **`Dockerfile`** and the static storefront image with **`Dockerfile.nginx`** (content under **`nginx/html/`**).
 
 ## Running extraction
 

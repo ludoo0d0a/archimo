@@ -27,5 +27,7 @@ public record ExtractResult(
     InfrastructureTopology infrastructureTopology,
     /** Fully qualified main application class when discovered, else null. */
     String applicationMainClass,
-    boolean fullDependencyMode
+    boolean fullDependencyMode,
+    /** jMolecules / ArchUnit build hints, typed elements, relations, static findings. */
+    FrameworkDesignInsights frameworkDesignInsights
 ) {}

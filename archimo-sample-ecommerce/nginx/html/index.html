@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Archimo Sample — E-commerce</title>
+  <link rel="stylesheet" href="/css/app.css"/>
+</head>
+<body>
+<header class="site-header">
+  <img src="/images/logo.svg" alt="" width="40" height="40"/>
+  <h1>Sample shop</h1>
+  <span>Spring Modulith demo</span>
+</header>
+<main>
+  <section class="hero">
+    <img class="hero-banner" src="/images/banner.svg" alt="" width="800" height="160"/>
+    <h2>Static storefront</h2>
+    <p>
+      This page is served by <strong>NGINX</strong> (see <code>Dockerfile.nginx</code> and <code>nginx/html/</code>).
+      The Spring Boot sample has no embedded web server; API traffic can use <code>/api/…</code> through this same front.
+    </p>
+  </section>
+  <section class="cards" aria-label="Modules">
+    <article class="card">
+      <img src="/images/icon-catalog.svg" alt="" width="48" height="48"/>
+      <h3>Catalog</h3>
+      <p>Products, stock, and pricing events in the sample domain.</p>
+    </article>
+    <article class="card">
+      <img src="/images/icon-order.svg" alt="" width="48" height="48"/>
+      <h3>Orders</h3>
+      <p>Place, pay, ship, and cancel flows for demonstration.</p>
+    </article>
+    <article class="card">
+      <img src="/images/icon-customer.svg" alt="" width="48" height="48"/>
+      <h3>Customers</h3>
+      <p>Registration, loyalty, and address updates as domain events.</p>
+    </article>
+  </section>
+  <footer class="site-footer">
+    <p>Archimo sample — static assets: <a href="/css/app.css">CSS</a>, images under <code>/images/</code>.</p>
+  </footer>
+</main>
+</body>
+</html>

@@ -3,6 +3,7 @@ package fr.geoking.archimo;
 import fr.geoking.archimo.extract.ModulithExtractor;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.geoking.archimo.extract.model.ModuleDependency;
@@ -140,6 +141,7 @@ class ModulithExtractorTest {
         assertThat(jsonDir.resolve("endpoint-sequences.json")).exists();
         assertThat(jsonDir.resolve("extract-result.json")).exists();
         assertThat(jsonDir.resolve("infrastructure-topology.json")).exists();
+        assertThat(jsonDir.resolve("framework-design-insights.json")).exists();
     }
 
     @Test
@@ -165,6 +167,7 @@ class ModulithExtractorTest {
             plantUmlLevels.put(e.path("id").asText(), e.path("c4Level").asInt());
         }
         assertThat(plantUmlLevels.get("system-context")).isEqualTo(1);
+        assertThat(plantUmlLevels.get("c4-containers")).isEqualTo(2);
         assertThat(plantUmlLevels.get("components")).isEqualTo(3);
         assertThat(plantUmlLevels.get("architecture-flow")).isEqualTo(0);
         assertThat(plantUmlLevels.get("architecture-sequence")).isEqualTo(0);
@@ -204,6 +207,33 @@ class ModulithExtractorTest {
 
         assertThat(result.eventsMap()).isEmpty();
         assertThat(result.architectureInfos()).isEmpty(); // No projectDir provided
+        assertThat(result.frameworkDesignInsights()).isEqualTo(FrameworkDesignInsights.empty());
+    }
+
+    @Test
+    void parseSampleEcommerceWithProjectDir_detectsJmoleculesAndArchUnitDiagrams() throws Exception {
+        Path sampleProjectDir = findSampleProjectDir();
+        Assumptions.assumeTrue(sampleProjectDir != null);
+        Assumptions.assumeTrue(Files.isDirectory(sampleProjectDir.resolve("target/classes")));
+        Assumptions.assumeTrue(Files.isDirectory(sampleProjectDir.resolve("target/test-classes")));
+
+        ApplicationModules modules = ApplicationModules.of(EcommerceApplication.class);
+        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, sampleProjectDir);
+        ExtractResult result = extractor.extract();
+
+        assertThat(result.frameworkDesignInsights().jmoleculesDeclaredInBuild()).isTrue();
+        assertThat(result.frameworkDesignInsights().jmoleculesElements())
+                .anyMatch(e -> e.className().endsWith("OrderCreated"));
+        assertThat(result.frameworkDesignInsights().archUnitDeclaredInBuild()).isTrue();
+        assertThat(result.frameworkDesignInsights().archUnitRuleRefs())
+                .anyMatch(r -> r.className().endsWith("SampleArchitectureRules"));
+
+        assertThat(outputDir.resolve("mermaid/jmolecules-model.mmd")).exists();
+        assertThat(Files.readString(outputDir.resolve("mermaid/jmolecules-model.mmd"))).contains("OrderCreated");
+
+        assertThat(outputDir.resolve("mermaid/archunit-rules-overview.mmd")).exists();
+        assertThat(Files.readString(outputDir.resolve("mermaid/archunit-rules-overview.mmd")))
+                .contains("SampleArchitectureRules");
     }
 
     /**

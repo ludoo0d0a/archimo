@@ -22,20 +22,6 @@ data:
         proxy_set_header X-Forwarded-Proto $scheme;
       }
     }
-  index.html: |
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>Archimo sample — storefront</title>
-    </head>
-    <body>
-      <h1>Sample e-commerce front</h1>
-      <p>Static assets are served by <strong>NGINX</strong>. REST calls use <code>/api/…</code>
-      (proxied to <strong>Spring Cloud Gateway</strong> → Spring Boot app).</p>
-    </body>
-    </html>
 ---
 apiVersion: v1
 kind: Service
@@ -70,16 +56,14 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: nginx:1.27-alpine
+          image: archimo-sample-ecommerce-nginx:local
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
           volumeMounts:
             - name: cfg
               mountPath: /etc/nginx/conf.d/default.conf
               subPath: default.conf
-            - name: cfg
-              mountPath: /usr/share/nginx/html/index.html
-              subPath: index.html
       volumes:
         - name: cfg
           configMap:

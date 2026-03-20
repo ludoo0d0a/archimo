@@ -5,6 +5,7 @@ import fr.geoking.archimo.extract.model.ClassDependency;
 import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import fr.geoking.archimo.extract.model.ExternalHttpClient;
 import fr.geoking.archimo.extract.model.InfrastructureTopology;
 import fr.geoking.archimo.extract.model.MessagingFlow;
@@ -57,7 +58,8 @@ class PlantUmlOutputTest {
                 ),
                 InfrastructureTopology.empty(),
                 "com.example.petclinic.PetclinicApplication",
-                false
+                false,
+                FrameworkDesignInsights.empty()
         );
 
         new PlantUmlOutput().write(null, outputDir, result);
@@ -71,6 +73,18 @@ class PlantUmlOutputTest {
         assertThat(systemContextContent).contains("payment-service");
         assertThat(systemContextContent).contains("owner-events");
         assertThat(systemContextContent).contains("Person_Ext(user");
+        assertThat(systemContextContent).contains("Rel(user, app,");
+
+        Path c4Containers = outputDir.resolve("c4-containers.puml");
+        assertThat(c4Containers).exists();
+        String c4c = Files.readString(c4Containers);
+        assertThat(c4c).contains("C4_Container");
+        assertThat(c4c).contains("Static content");
+        assertThat(c4c).contains("Web UI");
+        assertThat(c4c).contains("Backend");
+        assertThat(c4c).contains("Database");
+        assertThat(c4c).contains("Person_Ext(user");
+        assertThat(c4c).contains("Rel(user, web_ui");
 
         Path diagram = outputDir.resolve("architecture-class-diagram.puml");
         assertThat(diagram).exists();
@@ -164,7 +178,8 @@ class PlantUmlOutputTest {
                 List.of(),
                 InfrastructureTopology.empty(),
                 null,
-                true
+                true,
+                FrameworkDesignInsights.empty()
         );
 
         new PlantUmlOutput().write(null, outputDir, result);

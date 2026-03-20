@@ -6,6 +6,7 @@ import fr.geoking.archimo.extract.model.EndpointFlow;
 import fr.geoking.archimo.extract.model.EntityRelation;
 import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
+import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import fr.geoking.archimo.extract.model.ModuleDependency;
 import fr.geoking.archimo.model.ModuleEvents;
 import fr.geoking.archimo.extract.model.SequenceFlow;
@@ -120,6 +121,7 @@ public final class ModulithExtractor {
         final List<ExternalHttpClient> externalHttpClients;
         final int classesParsedCount;
         JavaClasses importedClasses = null;
+        JavaClasses importedTestClasses = null;
 
         if (projectDir != null) {
             Path classesPath = findClassesPath(projectDir);
@@ -134,6 +136,11 @@ public final class ModulithExtractor {
                 messagingFlows = new MessagingScanner().scan(importedClasses, messagingScanConcurrency);
                 externalHttpClients = new ExternalHttpClientScanner().scan(importedClasses);
                 classDependencies = architectureScanner.scanClassDependencies(importedClasses, architectureInfos);
+
+                Path testClassesPath = findTestClassesPath(projectDir);
+                if (testClassesPath != null && Files.isDirectory(testClassesPath)) {
+                    importedTestClasses = new ClassFileImporter().importPath(testClassesPath);
+                }
             } else {
                 architectureInfos = List.of();
                 classDependencies = List.of();
@@ -153,6 +160,9 @@ public final class ModulithExtractor {
             classesParsedCount = 0;
         }
 
+        FrameworkDesignInsights frameworkInsights = new FrameworkInsightsScanner().scan(
+                importedClasses, importedTestClasses, projectDir, classDependencies);
+
         List<BpmnFlow> bpmnFlows = bpmnFuture.join();
         List<OpenApiSpecFile> openApiSpecFiles = openApiFuture.join();
         InfrastructureTopology infrastructureTopology = infrastructureFuture.join();
@@ -165,7 +175,8 @@ public final class ModulithExtractor {
         ExtractResult result = new ExtractResult(
                 eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,
                 endpointFlows, commandFlows, messagingFlows, bpmnFlows, architectureInfos,
-                openApiSpecFiles, externalHttpClients, infrastructureTopology, applicationMainClass, fullDependencyMode
+                openApiSpecFiles, externalHttpClients, infrastructureTopology, applicationMainClass, fullDependencyMode,
+                frameworkInsights
         );
 
         // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
@@ -193,6 +204,7 @@ public final class ModulithExtractor {
         objectMapper.writeValue(jsonDir.resolve("external-http-clients.json").toFile(), externalHttpClients);
         objectMapper.writeValue(jsonDir.resolve("infrastructure-topology.json").toFile(), infrastructureTopology);
         objectMapper.writeValue(jsonDir.resolve("extract-result.json").toFile(), result);
+        objectMapper.writeValue(jsonDir.resolve("framework-design-insights.json").toFile(), result.frameworkDesignInsights());
 
         return result;
     }
@@ -518,12 +530,150 @@ public final class ModulithExtractor {
 
         List<Map<String, Object>> diagrams = new ArrayList<>();
         for (Path p : pumlFiles) {
-            diagrams.add(buildPlantUmlDiagramIndexEntry(p, inlineSources));
+            Map<String, Object> entry = buildPlantUmlDiagramIndexEntry(p, inlineSources);
+            applyCanonicalC4DiagramMetadata(entry);
+            diagrams.add(entry);
         }
         for (Path p : mmdFiles) {
-            diagrams.add(buildMermaidDiagramIndexEntry(p, inlineSources));
+            Map<String, Object> entry = buildMermaidDiagramIndexEntry(p, inlineSources);
+            applyCanonicalC4DiagramMetadata(entry);
+            diagrams.add(entry);
         }
+        sortDiagramsForSiteIndex(diagrams);
         return diagrams;
+    }
+
+    private static int diagramC4Level(Map<String, Object> d) {
+        Object o = d.get("c4Level");
+        if (o instanceof Number n) {
+            return n.intValue();
+        }
+        if (o != null) {
+            try {
+                return Integer.parseInt(o.toString());
+            } catch (NumberFormatException ignored) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    private static int diagramC4Order(Map<String, Object> d) {
+        Object o = d.get("c4Order");
+        if (o instanceof Number n) {
+            return n.intValue();
+        }
+        if (o != null) {
+            try {
+                return Integer.parseInt(o.toString());
+            } catch (NumberFormatException ignored) {
+                return 1000;
+            }
+        }
+        return 1000;
+    }
+
+    private static void sortDiagramsForSiteIndex(List<Map<String, Object>> diagrams) {
+        diagrams.sort((a, b) -> {
+            int la = diagramC4Level(a);
+            int lb = diagramC4Level(b);
+            if (la != lb) {
+                return Integer.compare(la, lb);
+            }
+            int oa = diagramC4Order(a);
+            int ob = diagramC4Order(b);
+            if (oa != ob) {
+                return Integer.compare(oa, ob);
+            }
+            String na = String.valueOf(a.getOrDefault("navLabel", a.get("id")));
+            String nb = String.valueOf(b.getOrDefault("navLabel", b.get("id")));
+            return na.compareToIgnoreCase(nb);
+        });
+    }
+
+    /**
+     * Aligns sidebar labels and {@code c4Level} with the documented C4 tree: L1 context, L2 containers,
+     * L3 backend composition, L4 code. Parser-specific diagram files are slotted here so lists stay stable.
+     */
+    private static void applyCanonicalC4DiagramMetadata(Map<String, Object> entry) {
+        String id = (String) entry.get("id");
+        if (id == null) {
+            return;
+        }
+        String format = Objects.toString(entry.get("format"), "");
+
+        if ("system-context".equals(id)) {
+            entry.put("c4Level", 1);
+            entry.put("c4Order", 0);
+            entry.put("navLabel", "L1 — System context");
+            entry.put("level", "system");
+            entry.put("category", "overview");
+            return;
+        }
+        if ("c4-containers".equals(id)) {
+            entry.put("c4Level", 2);
+            entry.put("c4Order", 0);
+            entry.put("navLabel", "L2 — Containers");
+            entry.put("level", "container");
+            entry.put("category", "container");
+            return;
+        }
+        if ("components".equals(id)) {
+            entry.put("c4Level", 3);
+            entry.put("c4Order", 0);
+            entry.put("navLabel", "L3 — Backend (all modules)");
+            entry.put("level", "component");
+            entry.put("category", "module");
+            return;
+        }
+        if ("architecture-layers".equals(id)) {
+            entry.put("c4Level", 3);
+            entry.put("c4Order", 5);
+            entry.put("navLabel", "L3 — Backend layers");
+            entry.put("level", "component");
+            entry.put("category", "layers");
+            return;
+        }
+        if (id.startsWith("module-")) {
+            entry.put("c4Level", 3);
+            entry.put("c4Order", 20);
+            String base = id.substring("module-".length()).replace(".", " / ");
+            entry.put("navLabel", "L3 — Module: " + base);
+            entry.put("level", "component");
+            entry.put("category", "module");
+            return;
+        }
+        if ("architecture-class-diagram".equals(id)) {
+            entry.put("c4Level", 4);
+            entry.put("c4Order", 0);
+            entry.put("navLabel", "L4 — Classes by layer");
+            entry.put("level", "code");
+            entry.put("category", "code");
+            return;
+        }
+        if ("architecture-component-dependencies".equals(id)) {
+            entry.put("c4Level", 4);
+            entry.put("c4Order", 5);
+            entry.put("navLabel", "L4 — Component dependencies");
+            entry.put("level", "code");
+            entry.put("category", "code");
+            return;
+        }
+        if ("mermaid".equals(format) && "module-dependencies".equals(id)) {
+            entry.put("c4Level", 3);
+            entry.put("c4Order", 10);
+            entry.put("navLabel", "L3 — Module dependencies (Mermaid)");
+            entry.put("level", "component");
+            entry.put("category", "module");
+            return;
+        }
+        if ("mermaid".equals(format) && "jmolecules-model".equals(id)) {
+            entry.put("c4Level", 4);
+            entry.put("c4Order", 30);
+            entry.put("navLabel", "L4 — jMolecules model");
+            entry.put("level", "code");
+            entry.put("category", "framework");
+        }
     }
 
     /**
@@ -534,7 +684,6 @@ public final class ModulithExtractor {
         String relative = outputDir.relativize(p).toString().replace('\\', '/');
         String fileName = p.getFileName().toString();
         String id = fileName.substring(0, fileName.length() - ".puml".length());
-        String lower = fileName.toLowerCase();
         int c4Level;
         String level;
         String category;
@@ -544,11 +693,11 @@ public final class ModulithExtractor {
             level = "system";
             category = "overview";
             navLabel = "System context";
-        } else if (lower.contains("container")) {
+        } else if ("c4-containers".equals(id)) {
             c4Level = 2;
             level = "container";
             category = "container";
-            navLabel = id.replace("-", " ");
+            navLabel = "Containers";
         } else if ("components".equals(id) || id.startsWith("module-")) {
             // Spring Modulith all-modules + per-module views are component-level (L3), not system context.
             c4Level = 3;
@@ -810,6 +959,14 @@ public final class ModulithExtractor {
         if (Files.isDirectory(mavenPath)) return mavenPath;
         Path gradlePath = projectDir.resolve("build/classes/java/main");
         if (Files.isDirectory(gradlePath)) return gradlePath;
+        return null;
+    }
+
+    private Path findTestClassesPath(Path projectDir) {
+        Path mavenTest = projectDir.resolve("target/test-classes");
+        if (Files.isDirectory(mavenTest)) return mavenTest;
+        Path gradleTest = projectDir.resolve("build/classes/java/test");
+        if (Files.isDirectory(gradleTest)) return gradleTest;
         return null;
     }
 

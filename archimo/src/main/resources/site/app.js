@@ -178,6 +178,17 @@
     return d.level === 'mermaid' ? 0 : 3;
   }
 
+  /** Sort key from site-index: level, then c4Order (canonical tree), then label. */
+  function compareDiagrams(a, b) {
+    const la = byC4Level(a);
+    const lb = byC4Level(b);
+    if (la !== lb) return la - lb;
+    const oa = a.c4Order != null && a.c4Order !== '' ? Number(a.c4Order) : 1000;
+    const ob = b.c4Order != null && b.c4Order !== '' ? Number(b.c4Order) : 1000;
+    if (oa !== ob) return oa - ob;
+    return String(a.navLabel || a.title || a.id || '').localeCompare(String(b.navLabel || b.title || b.id || ''));
+  }
+
   function renderDiagramLists() {
     const diagrams = (index && index.diagrams) ? index.diagrams : [];
     const lists = {
@@ -192,12 +203,7 @@
       if (lists[lvl]) lists[lvl].innerHTML = '';
     });
     diagrams
-      .sort((a, b) => {
-        const la = byC4Level(a);
-        const lb = byC4Level(b);
-        if (la !== lb) return la - lb;
-        return String(a.navLabel || a.title || '').localeCompare(String(b.navLabel || b.title || ''));
-      })
+      .sort(compareDiagrams)
       .forEach(d => {
         const lvl = byC4Level(d);
         const list = lists[lvl];
@@ -1005,12 +1011,7 @@
 
   function sortedDiagrams() {
     if (!index || !index.diagrams) return [];
-    return index.diagrams.slice().sort((a, b) => {
-      const la = byC4Level(a);
-      const lb = byC4Level(b);
-      if (la !== lb) return la - lb;
-      return String(a.navLabel || a.title || '').localeCompare(String(b.navLabel || b.title || ''));
-    });
+    return index.diagrams.slice().sort(compareDiagrams);
   }
 
   function navigateDiagram(step) {

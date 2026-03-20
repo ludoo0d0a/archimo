@@ -50,6 +50,7 @@ public final class PlantUmlOutput implements DiagramOutput {
         }
 
         writeSystemContextDiagram(outputDir, result);
+        writeC4ContainerDiagram(outputDir, result);
         writeArchitectureDiagram(outputDir, result.architectureInfos());
         writeArchitectureClassDiagram(outputDir, result.architectureInfos());
         writeEntityRelationshipDiagram(outputDir, result.entityRelations());
@@ -82,9 +83,6 @@ public final class PlantUmlOutput implements DiagramOutput {
         List<MessagingFlow> messaging = result.messagingFlows() == null ? List.of() : result.messagingFlows();
 
         boolean hasInboundHttp = !endpoints.isEmpty() || containsLayer(infos, "controller");
-        if (mainFqcn == null && !hasInboundHttp && httpClients.isEmpty() && messaging.isEmpty() && infos.isEmpty()) {
-            return;
-        }
 
         String appTitle = mainFqcn != null ? simpleName(mainFqcn) : "Application";
         String appTech = mainFqcn != null ? ("Spring Boot\\n" + c4Escape(mainFqcn)) : "Java application";
@@ -93,17 +91,16 @@ public final class PlantUmlOutput implements DiagramOutput {
             pw.println("@startuml");
             pw.println("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Context.puml");
             pw.println("LAYOUT_WITH_LEGEND()");
-            pw.println("title System Context");
+            pw.println("title System context (L1) — " + c4Escape(appTitle));
 
-            if (hasInboundHttp) {
-                pw.println("Person_Ext(user, \"User\", \"Uses HTTP API\")");
-            }
+            String userDesc = hasInboundHttp ? "Uses HTTP API / web UI" : "Primary actor / stakeholder";
+            pw.println("Person_Ext(user, \"User\", \"" + c4Escape(userDesc) + "\")");
 
             pw.println("System(app, \"" + c4Escape(appTitle) + "\", \"" + appTech + "\")");
 
-            if (hasInboundHttp) {
-                pw.println("Rel(user, app, \"HTTPS\")");
-            }
+            String userToApp = hasInboundHttp ? "Uses" : "Interacts with";
+            String userTech = hasInboundHttp ? "HTTPS" : "Various";
+            pw.println("Rel(user, app, \"" + userToApp + "\", \"" + userTech + "\")");
 
             List<String> httpLabels = new ArrayList<>();
             Set<String> seenHttp = new LinkedHashSet<>();
@@ -136,6 +133,45 @@ public final class PlantUmlOutput implements DiagramOutput {
                 pw.println("Rel(app, " + id + ", \"Messaging\")");
             }
 
+            pw.println("@enduml");
+        }
+    }
+
+    /**
+     * C4 Level 2 — containers inside the software system: static assets, UI, backend, database.
+     * Kept stable across projects so the site sidebar and L1–L4 tree stay aligned.
+     */
+    private void writeC4ContainerDiagram(Path outputDir, ExtractResult result) throws IOException {
+        String mainFqcn = result.applicationMainClass();
+        List<ArchitectureInfo> infos = result.architectureInfos() == null ? List.of() : result.architectureInfos();
+        List<EndpointFlow> endpoints = result.endpointFlows() == null ? List.of() : result.endpointFlows();
+        List<EntityRelation> entityRelations = result.entityRelations() == null ? List.of() : result.entityRelations();
+
+        boolean hasInboundHttp = !endpoints.isEmpty() || containsLayer(infos, "controller");
+        boolean hasDb = containsLayer(infos, "repository") || !entityRelations.isEmpty();
+
+        String appTitle = mainFqcn != null ? simpleName(mainFqcn) : "Application";
+        String backendTech = mainFqcn != null ? ("Spring Boot\\n" + c4Escape(mainFqcn)) : "Spring Boot / Java";
+        String uiTech = hasInboundHttp ? "Browser; pages & REST clients" : "Browser, desktop, or embedded client";
+        String dbTech = hasDb ? "Relational / JPA persistence" : "Persistence (none detected from scan)";
+
+        try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("c4-containers.puml")))) {
+            pw.println("@startuml");
+            pw.println("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Container.puml");
+            pw.println("LAYOUT_WITH_LEGEND()");
+            pw.println("title Container diagram (L2) — " + c4Escape(appTitle));
+            pw.println("Person_Ext(user, \"User\", \"Uses the application\")");
+            pw.println("System_Boundary(sys, \"" + c4Escape(appTitle) + "\") {");
+            pw.println("  Container(static_assets, \"Static content\", \"HTML, CSS, JS, images\")");
+            pw.println("  Container(web_ui, \"Web UI\", \"" + c4Escape(uiTech) + "\")");
+            pw.println("  Container(backend, \"Backend\", \"" + backendTech + "\")");
+            pw.println("  ContainerDb(database, \"Database\", \"" + c4Escape(dbTech) + "\")");
+            pw.println("}");
+            pw.println("Rel(user, web_ui, \"Uses\", \"HTTPS\")");
+            pw.println("Rel(user, static_assets, \"Loads assets\", \"HTTPS\")");
+            pw.println("Rel(web_ui, backend, \"Invokes\", \"HTTP / JSON\")");
+            pw.println("Rel(backend, static_assets, \"May serve\", \"filesystem / CDN\")");
+            pw.println("Rel(backend, database, \"Reads & writes\", \"SQL / ORM\")");
             pw.println("@enduml");
         }
     }
@@ -180,7 +216,7 @@ public final class PlantUmlOutput implements DiagramOutput {
             pw.println("@startuml");
             pw.println("!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Component.puml");
             pw.println("LAYOUT_WITH_LEGEND()");
-            pw.println("Title Architecture Layers");
+            pw.println("Title Component diagram (L3) — Backend composition");
             infos.stream().forEach(info -> {
                 String shortName = info.className().substring(info.className().lastIndexOf('.') + 1);
                 pw.println("Component(" + shortName + ", \"" + shortName + "\", \"" + info.layer() + "\")");
@@ -201,7 +237,7 @@ public final class PlantUmlOutput implements DiagramOutput {
 
         try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("architecture-class-diagram.puml")))) {
             pw.println("@startuml");
-            pw.println("title Class Architecture (Controller-Service-Repository)");
+            pw.println("title Code diagram (L4) — Classes by architectural layer");
             pw.println("skinparam packageStyle rectangle");
             pw.println("hide empty members");
 
@@ -593,7 +629,7 @@ public final class PlantUmlOutput implements DiagramOutput {
 
         try (PrintWriter pw = new PrintWriter(Files.newBufferedWriter(outputDir.resolve("architecture-component-dependencies.puml")))) {
             pw.println("@startuml");
-            pw.println("title Component Dependencies (from bytecode)");
+            pw.println("title Code diagram (L4) — Component dependencies (bytecode)");
             pw.println("skinparam packageStyle rectangle");
             pw.println("hide empty members");
             for (ArchitectureInfo info : infos) {

@@ -12,6 +12,14 @@
     <description>Parent POM for Archimo and sample modules</description>
     <url>https://github.com/ludoo0d0a/archimo</url>
 
+    <licenses>
+        <license>
+            <name>PolyForm Noncommercial License 1.0.0</name>
+            <url>https://polyformproject.org/licenses/noncommercial/1.0.0</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
     <scm>
         <connection>scm:git:https://github.com/ludoo0d0a/archimo.git</connection>
         <developerConnection>scm:git:https://github.com/ludoo0d0a/archimo.git</developerConnection>

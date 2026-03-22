@@ -194,7 +194,7 @@ class ModulithExtractorTest {
                 systemContext = e;
             } else if ("components".equals(id)) {
                 components = e;
-            } else if ("architecture-class-diagram".equals(id)) {
+            } else if ("architecture-class-diagram".equals(id) && "plantuml".equals(e.path("format").asText())) {
                 archClass = e;
             }
         }

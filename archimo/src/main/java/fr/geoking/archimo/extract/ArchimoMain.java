@@ -145,8 +145,19 @@ public final class ArchimoMain {
             Path classes = target.resolve("classes");
             Path dependencyDir = target.resolve("dependency");
 
-            if (!java.nio.file.Files.isDirectory(classes) || !java.nio.file.Files.isDirectory(dependencyDir)) {
-                logger.info("Project not built. Running: mvn compile dependency:copy-dependencies -DincludeScope=compile");
+            boolean classesMissing = !java.nio.file.Files.isDirectory(classes);
+            boolean depsMissing = !java.nio.file.Files.isDirectory(dependencyDir);
+
+            if (classesMissing || depsMissing) {
+                if (classesMissing && depsMissing) {
+                    logger.info("Project artifacts not found (classes and dependencies).");
+                } else if (classesMissing) {
+                    logger.info("Project classes not found in " + classes.toAbsolutePath());
+                } else {
+                    logger.info("Project dependencies not found in " + dependencyDir.toAbsolutePath());
+                }
+
+                logger.info("Building project. Running: mvn compile dependency:copy-dependencies -DincludeScope=compile");
                 int exit = runMaven(projectDir, "compile", "dependency:copy-dependencies", "-DincludeScope=compile");
                 if (exit != 0) {
                     logger.error("Maven build failed.");

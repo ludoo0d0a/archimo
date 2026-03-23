@@ -17,6 +17,8 @@
       <div class="search-bar">
         <input id="searchInput" type="search" placeholder="Search modules, classes, events, OpenAPI, HTTP clients, Docker/K8s…" />
       </div>
+      <button type="button" id="addC4ElementBtn" class="header-btn">Add C4 element…</button>
+      <button type="button" id="exportManifestBtn" class="header-btn">Export archimo.mf</button>
       <button id="copyLinkBtn" class="header-link-btn" title="Copy deep link" aria-label="Copy deep link">Copy Link</button>
       <button id="themeToggle" title="Toggle Dark/Light Mode" aria-label="Toggle theme">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="theme-icon-light"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
@@ -27,35 +29,30 @@
   <main id="mainContainer">
     <nav class="sidebar">
       <h2>Architecture Navigation</h2>
-      <div id="c4ModelNav" class="nav-level">
-        <h3 class="nav-level-title">C4 model</h3>
-        <p class="nav-level-hint">Merged tree from scan + <code>archimo.mf</code>. Browser-only additions are stored locally and can be exported.</p>
-        <div class="c4-model-toolbar">
-          <button type="button" id="addC4ElementBtn" class="export-btn">Add element…</button>
-          <button type="button" id="exportManifestBtn" class="export-btn">Export archimo.mf</button>
-        </div>
-        <div id="c4ModelTree" class="c4-model-tree"></div>
-      </div>
       <div id="c4Level1" class="nav-level">
-        <h3 class="nav-level-title">System context diagram (L1)</h3>
+        <h3 class="nav-level-title">System context (L1)</h3>
         <ul id="diagramListL1" class="diagram-list"></ul>
+        <ul id="elementListL1" class="diagram-list c4-element-list"></ul>
       </div>
       <div id="c4Level2" class="nav-level">
-        <h3 class="nav-level-title">Container diagram (L2)</h3>
+        <h3 class="nav-level-title">Containers (L2)</h3>
         <ul id="diagramListL2" class="diagram-list"></ul>
+        <ul id="elementListL2" class="diagram-list c4-element-list"></ul>
       </div>
       <div id="c4Level3" class="nav-level">
-        <h3 class="nav-level-title">Component diagram (L3)</h3>
+        <h3 class="nav-level-title">Components (L3)</h3>
         <ul id="diagramListL3" class="diagram-list"></ul>
+        <ul id="elementListL3" class="diagram-list c4-element-list"></ul>
       </div>
       <div id="c4Level4" class="nav-level">
-        <h3 class="nav-level-title">Code diagram (L4)</h3>
+        <h3 class="nav-level-title">Code (L4)</h3>
         <ul id="diagramListL4" class="diagram-list"></ul>
+        <ul id="elementListL4" class="diagram-list c4-element-list"></ul>
       </div>
-      <div id="c4Mermaid" class="nav-level">
-        <h3 class="nav-level-title">Supporting diagrams</h3>
-        <p class="nav-level-hint">C4 <a href="https://c4model.com/diagrams" target="_blank" rel="noopener">dynamic, deployment, and data</a> views, Mermaid flows, and endpoint-specific diagrams.</p>
-        <ul id="diagramListMermaid" class="diagram-list"></ul>
+      <div id="c4Other" class="nav-level">
+        <h3 class="nav-level-title">Other</h3>
+        <ul id="diagramListOther" class="diagram-list"></ul>
+        <ul id="elementListOther" class="diagram-list c4-element-list"></ul>
       </div>
       <div id="endpointNav" class="nav-level">
         <h3 class="nav-level-title">Endpoints <span class="endpoint-legend" title="SEQ = endpoint has dedicated sequence diagram; FLOW = fallback to endpoint flow diagram; DATA = endpoint has dedicated entity lineage diagram">SEQ/FLOW/DATA</span></h3>

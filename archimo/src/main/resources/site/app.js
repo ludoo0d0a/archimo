@@ -238,35 +238,43 @@
   }
 
   function refreshC4ModelPanel() {
-    const el = document.getElementById('c4ModelTree');
-    if (!el) return;
     const tree = getMergedC4ReportTree();
-    if (!tree.levelSections || !tree.levelSections.length) {
-      el.innerHTML = '<p class="nav-level-hint">No C4 tree in this report.</p>';
-      return;
-    }
-    const parts = [];
+    const containers = {
+      1: document.getElementById('elementListL1'),
+      2: document.getElementById('elementListL2'),
+      3: document.getElementById('elementListL3'),
+      4: document.getElementById('elementListL4'),
+      other: document.getElementById('elementListOther')
+    };
+
+    Object.values(containers).forEach(c => { if (c) c.innerHTML = ''; });
+
+    if (!tree.levelSections || !tree.levelSections.length) return;
+
     for (const sec of tree.levelSections) {
-      parts.push(`<div class="c4-model-section"><h4 class="c4-model-level">L${sec.level} — ${escapeHtml(sec.title || '')}</h4><ul class="c4-model-group">`);
+      const lvl = Number(sec.level);
+      const list = (lvl >= 1 && lvl <= 4) ? containers[lvl] : containers.other;
+      if (!list) continue;
+
       for (const g of sec.groups || []) {
         for (const e of g.elements || []) {
           const origin = e.origin === 'MANUAL' ? 'manual' : 'auto';
-          parts.push(
-            '<li><span class="c4-el-label">' +
+          const li = document.createElement('li');
+          li.className = 'c4-element-item';
+          li.innerHTML =
+            '<span class="c4-el-label">' +
               escapeHtml(e.label || e.id || '') +
-              '</span> <span class="c4-origin c4-origin-' +
+            '</span> <span class="c4-origin c4-origin-' +
               origin +
-              '">' +
+            '">' +
               origin +
-              '</span> <code class="c4-el-kind">' +
+            '</span> <code class="c4-el-kind">' +
               escapeHtml(e.kind || '') +
-              '</code></li>'
-          );
+            '</code>';
+          list.appendChild(li);
         }
       }
-      parts.push('</ul></div>');
     }
-    el.innerHTML = parts.join('');
   }
 
   function openC4AddModal() {
@@ -578,14 +586,15 @@
 
   function byC4Level(d) {
     if (d.c4Level != null) return Number(d.c4Level);
-    return d.level === 'mermaid' ? 0 : 3;
+    // Supporting diagrams / mermaid often don't have a level
+    return 0;
   }
 
   /** Sort key from site-index: level, then c4Order (canonical tree), then label. */
   function compareDiagrams(a, b) {
     const la = byC4Level(a);
     const lb = byC4Level(b);
-    if (la !== lb) return la - lb;
+    if (la !== lb && la !== 0 && lb !== 0) return la - lb;
     const oa = a.c4Order != null && a.c4Order !== '' ? Number(a.c4Order) : 1000;
     const ob = b.c4Order != null && b.c4Order !== '' ? Number(b.c4Order) : 1000;
     if (oa !== ob) return oa - ob;
@@ -599,17 +608,19 @@
       2: document.getElementById('diagramListL2'),
       3: document.getElementById('diagramListL3'),
       4: document.getElementById('diagramListL4'),
-      0: document.getElementById('diagramListMermaid')
+      other: document.getElementById('diagramListOther')
     };
-    const levelHeads = { 1: 'c4Level1', 2: 'c4Level2', 3: 'c4Level3', 4: 'c4Level4', 0: 'c4Mermaid' };
-    [1, 2, 3, 4, 0].forEach(lvl => {
-      if (lists[lvl]) lists[lvl].innerHTML = '';
+    const levelHeads = { 1: 'c4Level1', 2: 'c4Level2', 3: 'c4Level3', 4: 'c4Level4', other: 'c4Other' };
+
+    Object.values(lists).forEach(list => {
+      if (list) list.innerHTML = '';
     });
+
     diagrams
       .sort(compareDiagrams)
       .forEach(d => {
         const lvl = byC4Level(d);
-        const list = lists[lvl];
+        const list = (lvl >= 1 && lvl <= 4) ? lists[lvl] : lists.other;
         if (!list) return;
         const li = document.createElement('li');
         li.className = 'diagram-item';
@@ -621,6 +632,7 @@
         li.appendChild(a);
         list.appendChild(li);
       });
+
     // Always show C4 L1–L4 in the sidebar; use a placeholder when nothing was generated for that level.
     [1, 2, 3, 4].forEach(lvl => {
       const list = lists[lvl];
@@ -633,14 +645,11 @@
         list.appendChild(li);
       }
     });
-    [1, 2, 3, 4].forEach(lvl => {
+
+    [1, 2, 3, 4, 'other'].forEach(lvl => {
       const container = document.getElementById(levelHeads[lvl]);
       if (container) container.classList.remove('hidden');
     });
-    const mermaidSection = document.getElementById(levelHeads[0]);
-    if (mermaidSection) {
-      mermaidSection.classList.toggle('hidden', !lists[0] || lists[0].children.length === 0);
-    }
   }
 
   function renderEndpointList() {

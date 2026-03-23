@@ -157,8 +157,8 @@ public final class ArchimoMain {
                     logger.info("Project dependencies not found in " + dependencyDir.toAbsolutePath());
                 }
 
-                logger.info("Building project. Running: mvn compile dependency:copy-dependencies -DincludeScope=compile");
-                int exit = runMaven(projectDir, "compile", "dependency:copy-dependencies", "-DincludeScope=compile");
+                logger.info("Building project in " + projectDir.toAbsolutePath() + ". Running: mvn compile dependency:copy-dependencies -DincludeScope=compile -DskipTests");
+                int exit = runMaven(projectDir, "compile", "dependency:copy-dependencies", "-DincludeScope=compile", "-DskipTests");
                 if (exit != 0) {
                     logger.error("Maven build failed.");
                     System.exit(1);

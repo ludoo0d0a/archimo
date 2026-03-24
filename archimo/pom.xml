@@ -105,7 +105,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.5.2</version>
+                <version>3.6.0</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -119,6 +119,33 @@
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>
+                            <multiRelease>true</multiRelease>
+                            <relocations>
+                                <relocation>
+                                    <pattern>org.springframework.modulith.ApplicationModule</pattern>
+                                    <shadedPattern>org.springframework.modulith.ApplicationModule</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.springframework.modulith.NamedInterface</pattern>
+                                    <shadedPattern>org.springframework.modulith.NamedInterface</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.springframework.modulith</pattern>
+                                    <shadedPattern>fr.geoking.archimo.internal.modulith</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.tngtech.archunit</pattern>
+                                    <shadedPattern>fr.geoking.archimo.internal.archunit</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.structurizr</pattern>
+                                    <shadedPattern>fr.geoking.archimo.internal.structurizr</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.jayway.jsonpath</pattern>
+                                    <shadedPattern>fr.geoking.archimo.internal.jsonpath</shadedPattern>
+                                </relocation>
+                            </relocations>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <filters>
                                 <filter>
@@ -130,6 +157,8 @@
                                         <!-- Avoid "Shading will break its strong encapsulation" -->
                                         <exclude>module-info.class</exclude>
                                         <exclude>META-INF/versions/**/module-info.class</exclude>
+                                        <exclude>META-INF/versions/24/**</exclude>
+                                        <exclude>META-INF/versions/25/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>

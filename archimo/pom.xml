@@ -134,6 +134,22 @@
                                     <shadedPattern>fr.geoking.archimo.internal.modulith</shadedPattern>
                                 </relocation>
                                 <relocation>
+                                    <pattern>org.springframework.boot</pattern>
+                                    <shadedPattern>fr.geoking.archimo.internal.boot</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.springframework</pattern>
+                                    <shadedPattern>fr.geoking.archimo.internal.spring</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.fasterxml.jackson</pattern>
+                                    <shadedPattern>fr.geoking.archimo.internal.jackson</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.yaml.snakeyaml</pattern>
+                                    <shadedPattern>fr.geoking.archimo.internal.snakeyaml</shadedPattern>
+                                </relocation>
+                                <relocation>
                                     <pattern>com.tngtech.archunit</pattern>
                                     <shadedPattern>fr.geoking.archimo.internal.archunit</shadedPattern>
                                 </relocation>

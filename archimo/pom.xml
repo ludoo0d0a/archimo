@@ -130,6 +130,14 @@
                                     <shadedPattern>org.springframework.modulith.NamedInterface</shadedPattern>
                                 </relocation>
                                 <relocation>
+                                    <pattern>org.springframework.modulith.Modulith</pattern>
+                                    <shadedPattern>org.springframework.modulith.Modulith</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.springframework.boot.autoconfigure.SpringBootApplication</pattern>
+                                    <shadedPattern>org.springframework.boot.autoconfigure.SpringBootApplication</shadedPattern>
+                                </relocation>
+                                <relocation>
                                     <pattern>org.springframework.modulith</pattern>
                                     <shadedPattern>fr.geoking.archimo.internal.modulith</shadedPattern>
                                 </relocation>

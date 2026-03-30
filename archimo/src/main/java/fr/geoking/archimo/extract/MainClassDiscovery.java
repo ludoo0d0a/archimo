@@ -42,6 +42,7 @@ public final class MainClassDiscovery {
             for (Path p : walk.filter(x -> x.toString().endsWith(".java")).toList()) {
                 String content = Files.readString(p);
                 if (content.contains("@SpringBootApplication")
+                        || content.contains("@Modulith")
                         || content.contains("implements ApplicationRunner")
                         || content.contains("implements CommandLineRunner")) {
                     return extractFullClassName(p, src);

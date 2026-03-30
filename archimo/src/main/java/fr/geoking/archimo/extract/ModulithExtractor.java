@@ -8,7 +8,7 @@ import fr.geoking.archimo.extract.model.EventFlow;
 import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import fr.geoking.archimo.extract.model.ModuleDependency;
-import fr.geoking.archimo.model.ModuleEvents;
+import fr.geoking.archimo.extract.model.ModuleEvents;
 import fr.geoking.archimo.extract.model.SequenceFlow;
 import fr.geoking.archimo.extract.output.DiagramOutput;
 import fr.geoking.archimo.extract.output.DiagramOutputFactory;
@@ -1099,7 +1099,8 @@ public final class ModulithExtractor {
         }
         if (classes != null) {
             List<String> bootApps = StreamSupport.stream(classes.spliterator(), false)
-                    .filter(c -> c.isAnnotatedWith("org.springframework.boot.autoconfigure.SpringBootApplication"))
+                    .filter(c -> c.isAnnotatedWith("org.springframework.boot.autoconfigure.SpringBootApplication")
+                            || c.isAnnotatedWith("org.springframework.modulith.Modulith"))
                     .map(JavaClass::getFullName)
                     .sorted()
                     .toList();

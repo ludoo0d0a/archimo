@@ -1,7 +1,7 @@
 package fr.geoking.archimo.extract.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import fr.geoking.archimo.model.ModuleEvents;
+import fr.geoking.archimo.extract.model.ModuleEvents;
 
 import java.util.List;
 

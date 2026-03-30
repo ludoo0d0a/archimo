@@ -1,4 +1,4 @@
-package fr.geoking.archimo.model;
+package fr.geoking.archimo.extract.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 

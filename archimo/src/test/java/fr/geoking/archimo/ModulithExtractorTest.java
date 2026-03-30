@@ -9,7 +9,7 @@ import fr.geoking.archimo.extract.model.FrameworkDesignInsights;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.geoking.archimo.extract.model.ModuleDependency;
-import fr.geoking.archimo.model.ModuleEvents;
+import fr.geoking.archimo.extract.model.ModuleEvents;
 import fr.geoking.archimo.sample.ecommerce.EcommerceApplication;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;

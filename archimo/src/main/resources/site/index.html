@@ -30,29 +30,24 @@
     <nav class="sidebar">
       <h2>Architecture Navigation</h2>
       <div id="c4Level1" class="nav-level">
-        <h3 class="nav-level-title">System context (L1)</h3>
+        <h3 class="nav-level-title clickable-title" data-level="1">System context (L1)</h3>
         <ul id="diagramListL1" class="diagram-list"></ul>
-        <ul id="elementListL1" class="diagram-list c4-element-list"></ul>
       </div>
       <div id="c4Level2" class="nav-level">
-        <h3 class="nav-level-title">Containers (L2)</h3>
+        <h3 class="nav-level-title clickable-title" data-level="2">Containers (L2)</h3>
         <ul id="diagramListL2" class="diagram-list"></ul>
-        <ul id="elementListL2" class="diagram-list c4-element-list"></ul>
       </div>
       <div id="c4Level3" class="nav-level">
-        <h3 class="nav-level-title">Components (L3)</h3>
+        <h3 class="nav-level-title clickable-title" data-level="3">Components (L3)</h3>
         <ul id="diagramListL3" class="diagram-list"></ul>
-        <ul id="elementListL3" class="diagram-list c4-element-list"></ul>
       </div>
       <div id="c4Level4" class="nav-level">
-        <h3 class="nav-level-title">Code (L4)</h3>
+        <h3 class="nav-level-title clickable-title" data-level="4">Code (L4)</h3>
         <ul id="diagramListL4" class="diagram-list"></ul>
-        <ul id="elementListL4" class="diagram-list c4-element-list"></ul>
       </div>
       <div id="c4Other" class="nav-level">
-        <h3 class="nav-level-title">Other</h3>
+        <h3 class="nav-level-title clickable-title" data-level="other">Other</h3>
         <ul id="diagramListOther" class="diagram-list"></ul>
-        <ul id="elementListOther" class="diagram-list c4-element-list"></ul>
       </div>
       <div id="endpointNav" class="nav-level">
         <h3 class="nav-level-title">Endpoints <span class="endpoint-legend" title="SEQ = endpoint has dedicated sequence diagram; FLOW = fallback to endpoint flow diagram; DATA = endpoint has dedicated entity lineage diagram">SEQ/FLOW/DATA</span></h3>
@@ -99,6 +94,11 @@
           <pre id="diagramSourceText" class="diagram-source"></pre>
         </div>
       </div>
+
+      <section id="c4ElementsSection" class="section-card hidden">
+        <h2 id="c4ElementsTitle" class="search-section-title"></h2>
+        <div id="c4ElementsList" class="results-columns"></div>
+      </section>
 
       <section id="searchResultsPanel" class="section-card search-results-panel">
         <h2 class="search-section-title">Search Results</h2>

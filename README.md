@@ -61,5 +61,15 @@ See **[docs/GITHUB_PAGES_SETUP.md](docs/GITHUB_PAGES_SETUP.md)** for step-by-ste
 
 ## Requirements
 
-- Java 25+  
+- Java 17+ (Java 25+ recommended)
 - Target: Maven, Spring Modulith (`spring-modulith-core` / `spring-modulith-docs` on classpath; project mode runs Maven for you)
+
+### Java 17 compatibility
+
+While Archimo is optimized for Java 25 (e.g., using virtual threads when available), it maintains compatibility with Java 17. You can build it for Java 17 using the `java17` Maven profile:
+
+```bash
+mvn clean package -Pjava17
+```
+
+Running on Java 25+ provides better performance for the `MessagingScanner` by utilizing virtual threads. On Java 17, it falls back to a standard fixed thread pool.

@@ -7,6 +7,7 @@
   let endpointMethodFilter = 'ALL';
   let initialSearchTerm = '';
   let initialDiagramId = null;
+  let selectedC4Level = null;
 
   function encodeKroki(str) {
     if (typeof pako === 'undefined') return null;
@@ -238,43 +239,81 @@
   }
 
   function refreshC4ModelPanel() {
+    if (selectedC4Level !== null) {
+      showC4LevelPage(selectedC4Level);
+    }
+  }
+
+  function showC4LevelPage(level) {
+    selectedC4Level = level;
+    const section = document.getElementById('c4ElementsSection');
+    const titleEl = document.getElementById('c4ElementsTitle');
+    const listEl = document.getElementById('c4ElementsList');
+    const diagramSection = document.getElementById('diagramViewerSection');
+    const searchPanel = document.getElementById('searchResultsPanel');
+
+    if (!section || !titleEl || !listEl) return;
+
+    // Hide other sections
+    if (diagramSection) diagramSection.classList.add('hidden');
+    if (searchPanel) searchPanel.classList.remove('active');
+
+    // Show C4 section
+    section.classList.remove('hidden');
+
+    // Update title
+    const navTitleEl = document.querySelector(`.nav-level-title[data-level="${level}"]`);
+    titleEl.textContent = navTitleEl ? navTitleEl.textContent : `C4 Level ${level} Elements`;
+
+    // Highlight active title in sidebar
+    document.querySelectorAll('.nav-level-title.clickable-title').forEach(el => el.classList.remove('active'));
+    if (navTitleEl) navTitleEl.classList.add('active');
+    document.querySelectorAll('.diagram-item a').forEach(a => a.classList.remove('selected'));
+
+    // Populate elements
+    listEl.innerHTML = '';
     const tree = getMergedC4ReportTree();
-    const containers = {
-      1: document.getElementById('elementListL1'),
-      2: document.getElementById('elementListL2'),
-      3: document.getElementById('elementListL3'),
-      4: document.getElementById('elementListL4'),
-      other: document.getElementById('elementListOther')
-    };
+    const targetLvl = level === 'other' ? NaN : Number(level);
 
-    Object.values(containers).forEach(c => { if (c) c.innerHTML = ''; });
+    if (tree.levelSections) {
+      for (const sec of tree.levelSections) {
+        const lvl = Number(sec.level);
+        const isMatch = (level === 'other' && (lvl < 1 || lvl > 4)) || (lvl === targetLvl);
 
-    if (!tree.levelSections || !tree.levelSections.length) return;
+        if (isMatch) {
+          for (const g of sec.groups || []) {
+            const col = document.createElement('div');
+            col.className = 'results-column';
+            col.innerHTML = `<h3>${escapeHtml(g.title || g.groupId)}</h3><ul></ul>`;
+            const ul = col.querySelector('ul');
 
-    for (const sec of tree.levelSections) {
-      const lvl = Number(sec.level);
-      const list = (lvl >= 1 && lvl <= 4) ? containers[lvl] : containers.other;
-      if (!list) continue;
-
-      for (const g of sec.groups || []) {
-        for (const e of g.elements || []) {
-          const origin = e.origin === 'MANUAL' ? 'manual' : 'auto';
-          const li = document.createElement('li');
-          li.className = 'c4-element-item';
-          li.innerHTML =
-            '<span class="c4-el-label">' +
-              escapeHtml(e.label || e.id || '') +
-            '</span> <span class="c4-origin c4-origin-' +
-              origin +
-            '">' +
-              origin +
-            '</span> <code class="c4-el-kind">' +
-              escapeHtml(e.kind || '') +
-            '</code>';
-          list.appendChild(li);
+            for (const e of g.elements || []) {
+              const origin = e.origin === 'MANUAL' ? 'manual' : 'auto';
+              const li = document.createElement('li');
+              li.className = 'c4-element-item';
+              li.innerHTML =
+                '<span class="c4-el-label">' +
+                  escapeHtml(e.label || e.id || '') +
+                '</span> <span class="c4-origin c4-origin-' +
+                  origin +
+                '">' +
+                  origin +
+                '</span> <code class="c4-el-kind">' +
+                  escapeHtml(e.kind || '') +
+                '</code>';
+              ul.appendChild(li);
+            }
+            listEl.appendChild(col);
+          }
         }
       }
     }
+
+    if (listEl.children.length === 0) {
+      listEl.innerHTML = '<p class="no-results" style="padding: 1rem; color: var(--secondary-text); font-style: italic;">No elements defined at this level.</p>';
+    }
+
+    syncUrlState();
   }
 
   function openC4AddModal() {
@@ -428,10 +467,13 @@
       }
       bindUI();
       renderDiagramLists();
-      refreshC4ModelPanel();
       renderEndpointList();
       renderSearch(initialSearchTerm);
-      await selectInitialDiagram();
+      if (selectedC4Level) {
+        showC4LevelPage(selectedC4Level);
+      } else {
+        await selectInitialDiagram();
+      }
     } catch (err) {
       console.error('Report init error', err);
       showError('Could not initialize report: ' + (err.message || String(err)));
@@ -481,6 +523,13 @@
     if (copyLinkBtn) {
       copyLinkBtn.addEventListener('click', () => copyDeepLink(copyLinkBtn));
     }
+
+    document.querySelectorAll('.nav-level-title.clickable-title').forEach(title => {
+      title.addEventListener('click', () => {
+        const level = title.dataset.level;
+        showC4LevelPage(level);
+      });
+    });
     if (fitBtn) fitBtn.addEventListener('click', () => {
       if (panZoomInstance) {
         panZoomInstance.fit();
@@ -862,7 +911,16 @@
 
   async function selectDiagram(d) {
     selectedDiagram = d;
+    selectedC4Level = null;
     showingSource = false;
+
+    const c4Section = document.getElementById('c4ElementsSection');
+    if (c4Section) c4Section.classList.add('hidden');
+    document.querySelectorAll('.nav-level-title.clickable-title').forEach(el => el.classList.remove('active'));
+
+    const diagramSection = document.getElementById('diagramViewerSection');
+    if (diagramSection) diagramSection.classList.remove('hidden');
+
     document.querySelectorAll('.diagram-item a').forEach(a => a.classList.remove('selected'));
     const titleEl = document.getElementById('diagramViewerTitle');
     const viewerEl = document.getElementById('diagramViewer');
@@ -1214,6 +1272,15 @@
     }
     searchPanel.classList.add('active');
 
+    // Hide other views
+    selectedC4Level = null;
+    const c4Section = document.getElementById('c4ElementsSection');
+    if (c4Section) c4Section.classList.add('hidden');
+    document.querySelectorAll('.nav-level-title.clickable-title').forEach(el => el.classList.remove('active'));
+
+    const diagramSection = document.getElementById('diagramViewerSection');
+    if (diagramSection) diagramSection.classList.add('hidden');
+
     modulesEl.innerHTML = '';
     classesEl.innerHTML = '';
     eventsEl.innerHTML = '';
@@ -1358,6 +1425,7 @@
       const method = String(params.get('epMethod') || 'ALL').toUpperCase();
       const q = params.get('q');
       const diagramId = params.get('diagram');
+      const c4level = params.get('c4level');
 
       if (coverage === 'ALL' || coverage === 'SEQ' || coverage === 'FLOW') {
         endpointCoverageFilter = coverage;
@@ -1365,6 +1433,7 @@
       endpointMethodFilter = method || 'ALL';
       initialSearchTerm = q || '';
       initialDiagramId = diagramId || null;
+      selectedC4Level = c4level || null;
     } catch (e) {
       console.warn('Could not read URL state', e);
     }
@@ -1379,6 +1448,9 @@
 
       if (selectedDiagram && selectedDiagram.id != null) params.set('diagram', String(selectedDiagram.id));
       else params.delete('diagram');
+
+      if (selectedC4Level) params.set('c4level', String(selectedC4Level));
+      else params.delete('c4level');
 
       if (endpointCoverageFilter && endpointCoverageFilter !== 'ALL') params.set('epCoverage', endpointCoverageFilter);
       else params.delete('epCoverage');

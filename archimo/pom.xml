@@ -180,7 +180,7 @@
                             </filters>
                             <replaceOriginalArtifact>false</replaceOriginalArtifact>
                             <shadedArtifactAttached>true</shadedArtifactAttached>
-                            <shadedClassifierName>all</shadedClassifierName>
+                            <shadedClassifierName>${archimo.classifier}</shadedClassifierName>
                         </configuration>
                     </execution>
                 </executions>

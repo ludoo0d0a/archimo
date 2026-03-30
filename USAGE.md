@@ -35,6 +35,7 @@ Optional:
 
 - **`--app-class=com.example.YourApplication`** – use if the main class is not declared under `spring-boot-maven-plugin` in `pom.xml`.
 - **`--output-dir=<path>`** – default is `<project-dir>/target/archimo-docs`.
+- **`--serve`** – starts a local web server (default port 8080) to view the report and automatically opens it in your default browser. Can also be used standalone to view an existing report: `java -jar archimo-all.jar --serve --output-dir=./docs`.
 - **`-o` / `--output-format`** – which diagram/export writers run. Comma-separated: **`plantuml`**, **`mermaid`**, **`json`**. Default is **`plantuml,mermaid`**. The **`json`** format writes **`architecture.json`** at the report root (same JSON model as **`archimo.mf`**; also mirrored under `json/c4-report-tree.json`).
 - **`archimo.mf`** (optional) – JSON manifest at the **project root** (same shape as `architecture.json`, can be partial). When present, Archimo **starts** the C4 report tree from it and **merges** scan results; overlapping element ids with different label/kind/technology/attributes emit **warnings** on stderr. Full reference: **[docs/ARCHIMO_MANIFEST.md](docs/ARCHIMO_MANIFEST.md)**.
 - **`--messaging-scan-concurrency=auto|virtual|platform`** – controls how **MessagingScanner** parallelizes work over application classes (listeners + template call detection):

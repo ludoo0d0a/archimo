@@ -7,16 +7,19 @@ import fr.geoking.archimo.extract.model.ExtractResult;
 import fr.geoking.archimo.extract.output.OutputFormat;
 import org.springframework.modulith.core.ApplicationModules;
 
+import java.awt.Desktop;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.Comparator;
@@ -55,6 +58,12 @@ public final class ArchimoMain {
 
         if (config.projectDir != null && !config.internalChild) {
             runProjectMode(config);
+            return;
+        }
+
+        if (config.serve && config.projectDir == null && config.appClass == null && config.basePackage == null && config.githubUrl == null) {
+            Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("archimo-docs");
+            startWebServer(outputDir.resolve("site"));
             return;
         }
 
@@ -232,8 +241,8 @@ public final class ArchimoMain {
             pb.directory(projectDir.toFile());
             int exit = pb.start().waitFor();
             logger.unindent();
-            if (exit == 0 && config.serve && outDir != null) {
-                startWebServer(outDir.resolve("site"));
+            if (exit == 0 && outDir != null) {
+                handlePostExtraction(config, outDir);
             }
             System.exit(exit);
         } catch (Exception e) {
@@ -302,12 +311,31 @@ public final class ArchimoMain {
             logger.unindent();
 
             writeGitHubSummary(result, outputDir);
-            if (config.serve && !config.internalChild) {
-                startWebServer(outputDir.resolve("site"));
+            if (!config.internalChild) {
+                handlePostExtraction(config, outputDir);
             }
         } catch (Exception e) {
             logger.error("Extraction failed", e);
             System.exit(1);
+        }
+    }
+
+    private static void handlePostExtraction(Config config, Path outputDir) {
+        Path siteDir = outputDir.resolve("site");
+        if (config.serve) {
+            startWebServer(siteDir);
+        } else if (System.console() != null) {
+            System.out.println();
+            logger.info("Would you like to start a local web server to view the report? (y/n)");
+            Scanner scanner = new Scanner(System.in);
+            String input = scanner.nextLine().trim().toLowerCase();
+            if ("y".equals(input) || "yes".equals(input)) {
+                startWebServer(siteDir);
+            } else {
+                logger.info("You can view the report later using: java -jar <archimo.jar> --serve --output-dir=" + outputDir.toAbsolutePath());
+            }
+        } else {
+            logger.info("Suggestion: use --serve to automatically open the report in your browser.");
         }
     }
 
@@ -358,18 +386,45 @@ public final class ArchimoMain {
         }
         try {
             int port = 8080;
-            HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+            HttpServer server;
+            String host = "127.0.0.1";
+            try {
+                server = HttpServer.create(new InetSocketAddress(host, port), 0);
+            } catch (java.net.BindException e) {
+                logger.warn("Port " + port + " is already in use. Trying 8081...");
+                port = 8081;
+                server = HttpServer.create(new InetSocketAddress(host, port), 0);
+            }
             server.createContext("/", new StaticFileHandler(siteDir));
             server.setExecutor(Executors.newFixedThreadPool(2));
-            logger.success("Web server started at http://localhost:" + port + " 🌐");
+            String url = "http://localhost:" + port;
+            logger.success("Web server started at " + url + " 🌐");
             logger.info("To run it manually: python3 -m http.server -d " + siteDir.toAbsolutePath() + " " + port);
             logger.info("Press Ctrl+C to stop.");
             server.start();
+
+            openBrowser(url);
 
             // Keep alive
             Thread.currentThread().join();
         } catch (Exception e) {
             logger.error("Failed to start web server: " + e.getMessage());
+        }
+    }
+
+    private static void openBrowser(String url) {
+        if (System.getProperty("os.name").toLowerCase().contains("linux") && System.getenv("DISPLAY") == null) {
+            logger.debug("Headless Linux detected; skipping browser opening.");
+            return;
+        }
+        if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+            try {
+                Desktop.getDesktop().browse(new URI(url));
+            } catch (Exception e) {
+                logger.debug("Could not open browser automatically: " + e.getMessage());
+            }
+        } else {
+            logger.debug("Desktop/Browse not supported; cannot open browser automatically.");
         }
     }
 
@@ -385,7 +440,16 @@ public final class ArchimoMain {
             String path = exchange.getRequestURI().getPath();
             if (path.equals("/")) path = "/index.html";
 
-            Path file = baseDir.resolve(path.substring(1));
+            Path file = baseDir.resolve(path.substring(1)).normalize();
+            if (!file.startsWith(baseDir.normalize())) {
+                String response = "403 Forbidden";
+                exchange.sendResponseHeaders(403, response.length());
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(response.getBytes());
+                }
+                return;
+            }
+
             if (Files.exists(file) && !Files.isDirectory(file)) {
                 String contentType = getContentType(file);
                 byte[] content = Files.readAllBytes(file);
@@ -411,6 +475,8 @@ public final class ArchimoMain {
             if (name.endsWith(".json")) return "application/json";
             if (name.endsWith(".svg")) return "image/svg+xml";
             if (name.endsWith(".puml")) return "text/plain";
+            if (name.endsWith(".mmd")) return "text/plain";
+            if (name.endsWith(".adoc")) return "text/plain";
             return "application/octet-stream";
         }
     }
@@ -511,6 +577,7 @@ public final class ArchimoMain {
         logger.indent();
         logger.info("-o, --output-format     Diagram / export formats (comma-separated): plantuml, mermaid, json");
         logger.info("                        Default: plantuml,mermaid. Example: -o json or -o plantuml,mermaid,json");
+        logger.info("--serve                 Start a local web server to view the report and open it in the browser");
         logger.info("-v, --verbose           Enable verbose logging");
         logger.info("--log-file=<path>       Write logs to specified file");
         logger.info("--xmx=<size>            Set JVM maximum heap size (e.g. 2g)");
@@ -606,7 +673,7 @@ public final class ArchimoMain {
                 else if (a.startsWith("--output-format=")) outputFormats = mergeOutputFormats(outputFormats, OutputFormat.parseCsv(a.substring("--output-format=".length()), msg -> Logger.getInstance().warn(msg)));
             }
             if (expectOutputFormatToken) return null;
-            if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow) return null;
+            if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow && !serve) return null;
             if (projectDir != null && !projectDir.isDirectory()) return null;
             return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, module, serve, verbose, logFile, xmx, xms, xss, messagingScanConcurrency, internalChild, outputFormats);
         }

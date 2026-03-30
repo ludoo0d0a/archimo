@@ -31,7 +31,7 @@ public enum MessagingScanConcurrency {
         try {
             return valueOf(raw.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            System.err.println("WARNING: Invalid --messaging-scan-concurrency value '" + raw + "'. Using AUTO.");
+            Logger.getInstance().warn("Invalid --messaging-scan-concurrency value '" + raw + "'. Using AUTO.");
             return AUTO;
         }
     }

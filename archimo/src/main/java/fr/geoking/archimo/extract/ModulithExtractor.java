@@ -58,6 +58,8 @@ import java.util.stream.StreamSupport;
  */
 public final class ModulithExtractor {
 
+    private static final Logger logger = Logger.getInstance();
+
     /** Beyond this, diagram sources are not embedded in site-index.json (loaded on demand from the report). */
     private static final int INLINE_DIAGRAM_SOURCE_LIMIT = 72;
 
@@ -120,6 +122,9 @@ public final class ModulithExtractor {
      */
     public ExtractResult extract() throws IOException {
         Files.createDirectories(outputDir);
+
+        logger.info("Extracting architecture insights...");
+        logger.indent();
 
         // 1. Core extraction (synchronous as modules are needed for downstream steps)
         List<ModuleEvents> eventsMap = modules != null ? buildEventsMap() : List.of();
@@ -190,7 +195,7 @@ public final class ModulithExtractor {
         InfrastructureTopology infrastructureTopology = infrastructureFuture.join();
         int bpmnFilesParsed = bpmnScanner.getFilesParsed();
 
-        System.out.println("Parsed " + classesParsedCount + " classes and " + bpmnFilesParsed + " BPMN files.");
+        logger.info("Parsed " + classesParsedCount + " classes and " + bpmnFilesParsed + " BPMN files.");
 
         String applicationMainClass = resolveApplicationMainClass(importedClasses, applicationMainClassOverride, projectDir);
 
@@ -207,22 +212,26 @@ public final class ModulithExtractor {
             try {
                 manifestLoad = ArchimoManifestLoader.loadFull(projectDir);
                 if (manifestLoad.isPresent()) {
-                    System.out.println("Loaded architecture manifest: "
+                    logger.info("Loaded architecture manifest: "
                             + projectDir.resolve(ArchimoManifestLoader.MANIFEST_FILE_NAME).toAbsolutePath());
                 }
             } catch (IOException e) {
-                System.err.println("WARN: could not read archimo.mf: " + e.getMessage());
+                logger.warn("Could not read archimo.mf: " + e.getMessage());
             }
         }
         c4ReportTree = C4ReportTreeMerger.merge(manifestLoad.map(ArchimoManifestLoader.ManifestLoad::tree).orElse(null),
-                scannedTree, w -> System.err.println("WARN: " + w));
+                scannedTree, w -> logger.warn(w));
 
         // 3. Delegate diagram outputs (sequential to avoid conflicts from library writers like Modulith Documenter)
+        logger.info("Generating diagrams...");
+        logger.indent();
         for (DiagramOutput output : DiagramOutputFactory.create(outputFormats)) {
             output.write(modules, outputDir, result, c4ReportTree);
         }
+        logger.unindent();
 
         // 4. Generate static website (architecture-as-code navigation & search)
+        logger.info("Generating static website...");
         JsonNode archimoManifestOriginalJson = null;
         if (manifestLoad.isPresent()) {
             archimoManifestOriginalJson = manifestLoad.get().rawJson();
@@ -231,6 +240,7 @@ public final class ModulithExtractor {
                 openApiSpecFiles, externalHttpClients, infrastructureTopology, archimoManifestOriginalJson);
 
         // 5. Write JSON artifacts last (use absolute path so output location is unambiguous)
+        logger.info("Writing JSON artifacts...");
         Path jsonDir = outputDir.toAbsolutePath().resolve("json");
         Files.createDirectories(jsonDir);
         objectMapper.writeValue(jsonDir.resolve("events-map.json").toFile(), eventsMap);
@@ -249,6 +259,7 @@ public final class ModulithExtractor {
         objectMapper.writeValue(jsonDir.resolve("framework-design-insights.json").toFile(), result.frameworkDesignInsights());
         objectMapper.writeValue(jsonDir.resolve("c4-report-tree.json").toFile(), c4ReportTree);
 
+        logger.unindent();
         return result;
     }
 

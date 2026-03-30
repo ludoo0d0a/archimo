@@ -31,7 +31,7 @@ public class BpmnScanner {
                      filesParsed++;
                  });
         } catch (Exception e) {
-            System.err.println("Error scanning BPMN files: " + e.getMessage());
+            Logger.getInstance().error("Error scanning BPMN files: " + e.getMessage());
         }
         return flows;
     }
@@ -74,7 +74,7 @@ public class BpmnScanner {
                 }
             }
         } catch (Exception e) {
-            System.err.println("Error parsing BPMN file " + bpmnFile + ": " + e.getMessage());
+            Logger.getInstance().error("Error parsing BPMN file " + bpmnFile + ": " + e.getMessage());
         }
         return flows;
     }

@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
  */
 public final class ArchimoMain {
 
-    private static Logger logger = new Logger(false, null);
+    private static Logger logger = Logger.getInstance();
 
     public static void main(String[] args) {
         Config config = Config.parse(args);
@@ -38,9 +38,10 @@ public final class ArchimoMain {
         }
 
         logger = new Logger(config.verbose, config.logFile);
+        Logger.setInstance(logger);
 
         String version = ArchimoMain.class.getPackage().getImplementationVersion();
-        logger.info("Archimo " + (version != null ? version : "development"));
+        logger.success("Archimo " + (version != null ? version : "development"));
 
         if (config.githubUrl != null) {
             runGithubMode(config);
@@ -79,6 +80,7 @@ public final class ArchimoMain {
             }));
 
             logger.info("Cloning " + config.githubUrl + " into " + tempDir + "...");
+            logger.indent();
 
             ProcessBuilder pb = new ProcessBuilder("git", "clone", "--depth", "1", "--", config.githubUrl, ".");
             pb.directory(tempDir.toFile());
@@ -91,6 +93,7 @@ public final class ArchimoMain {
 
             Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.module, config.serve, config.verbose, config.logFile, config.xmx, config.xms, config.xss, config.messagingScanConcurrency, false, config.outputFormats);
             runProjectMode(newConfig);
+            logger.unindent();
 
         } catch (Exception e) {
             logger.error("Github mode failed", e);
@@ -103,6 +106,7 @@ public final class ArchimoMain {
         try {
             Path projectDir = config.projectDir.toPath();
             logger.info("Project: " + projectDir.toAbsolutePath());
+            logger.indent();
             String appClass = config.appClass;
             if (appClass == null) {
                 appClass = MainClassDiscovery.discover(projectDir);
@@ -150,19 +154,23 @@ public final class ArchimoMain {
 
             if (classesMissing || depsMissing) {
                 if (classesMissing && depsMissing) {
-                    logger.info("Project artifacts not found (classes and dependencies).");
+                    logger.warn("Project artifacts not found (classes and dependencies).");
                 } else if (classesMissing) {
-                    logger.info("Project classes not found in " + classes.toAbsolutePath());
+                    logger.warn("Project classes not found in " + classes.toAbsolutePath());
                 } else {
-                    logger.info("Project dependencies not found in " + dependencyDir.toAbsolutePath());
+                    logger.warn("Project dependencies not found in " + dependencyDir.toAbsolutePath());
                 }
 
-                logger.info("Building project in " + projectDir.toAbsolutePath() + ". Running: mvn -f " + projectDir.toAbsolutePath() + " compile dependency:copy-dependencies -DincludeScope=compile -DskipTests");
+                logger.info("Building project...");
+                logger.indent();
+                logger.debug("Command: mvn -f " + projectDir.toAbsolutePath() + " compile dependency:copy-dependencies -DincludeScope=compile -DskipTests");
                 int exit = runMaven(projectDir, "-f", projectDir.toAbsolutePath().toString(), "compile", "dependency:copy-dependencies", "-DincludeScope=compile", "-DskipTests");
+                logger.unindent();
                 if (exit != 0) {
                     logger.error("Maven build failed.");
                     System.exit(1);
                 }
+                logger.success("Project built successfully.");
             }
 
             String depJars;
@@ -223,6 +231,7 @@ public final class ArchimoMain {
             pb.inheritIO();
             pb.directory(projectDir.toFile());
             int exit = pb.start().waitFor();
+            logger.unindent();
             if (exit == 0 && config.serve && outDir != null) {
                 startWebServer(outDir.resolve("site"));
             }
@@ -283,11 +292,14 @@ public final class ArchimoMain {
                     config.messagingScanConcurrency, config.appClass, config.outputFormats);
             ExtractResult result = extractor.extract();
 
-            logger.info("Extraction complete. Output: " + outputDir.toAbsolutePath());
-            logger.debug("  - C4/PlantUML: " + outputDir.toAbsolutePath() + File.separator + "*.puml");
-            logger.debug("  - Module canvases: " + outputDir.toAbsolutePath() + File.separator + "*.adoc");
-            logger.debug("  - Events map & flows: " + outputDir.resolve("json"));
-            logger.debug("  - Mermaid: " + outputDir.resolve("mermaid"));
+            logger.success("Extraction complete! 🚀");
+            logger.info("Output: " + outputDir.toAbsolutePath());
+            logger.indent();
+            logger.debug("C4/PlantUML: " + outputDir.toAbsolutePath() + File.separator + "*.puml");
+            logger.debug("Module canvases: " + outputDir.toAbsolutePath() + File.separator + "*.adoc");
+            logger.debug("Events map & flows: " + outputDir.resolve("json"));
+            logger.debug("Mermaid: " + outputDir.resolve("mermaid"));
+            logger.unindent();
 
             writeGitHubSummary(result, outputDir);
             if (config.serve && !config.internalChild) {
@@ -333,7 +345,7 @@ public final class ArchimoMain {
             }
 
             Files.writeString(Path.of(summaryFile), sb.toString(), java.nio.file.StandardOpenOption.APPEND);
-            logger.info("GitHub Actions summary written.");
+            logger.success("GitHub Actions summary written.");
         } catch (IOException e) {
             logger.error("Failed to write GitHub Actions summary: " + e.getMessage());
         }
@@ -349,9 +361,9 @@ public final class ArchimoMain {
             HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
             server.createContext("/", new StaticFileHandler(siteDir));
             server.setExecutor(Executors.newFixedThreadPool(2));
-            logger.info("\nWeb server started at http://localhost:" + port);
+            logger.success("Web server started at http://localhost:" + port + " 🌐");
             logger.info("To run it manually: python3 -m http.server -d " + siteDir.toAbsolutePath() + " " + port);
-            logger.info("Press Ctrl+C to stop.\n");
+            logger.info("Press Ctrl+C to stop.");
             server.start();
 
             // Keep alive
@@ -474,25 +486,37 @@ public final class ArchimoMain {
     }
 
     private static void printUsage() {
-        System.err.println("Usage:");
-        System.err.println("  Classpath mode (run with project + deps on classpath):");
-        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ArchimoMain --app-class=<fqcn> [--output-dir=<path>] [-v]");
-        System.err.println("    java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ArchimoMain --base-package=<package> [--output-dir=<path>] [-v]");
-        System.err.println("  Project mode (builds with Maven then extracts):");
-        System.err.println("    java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve] [-v] [--xmx=1g]");
-        System.err.println("  GitHub mode (clones repo, builds with Maven then extracts):");
-        System.err.println("    java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve] [-v] [--xmx=1g]");
-        System.err.println("  Workflow generation:");
-        System.err.println("    java -jar archimo-all.jar --generate-workflow");
-        System.err.println("");
-        System.err.println("Options:");
-        System.err.println("  -o, --output-format     Diagram / export formats (comma-separated): plantuml, mermaid, json");
-        System.err.println("                          Default: plantuml,mermaid. Example: -o json or -o plantuml,mermaid,json");
-        System.err.println("  -v, --verbose           Enable verbose logging");
-        System.err.println("  --log-file=<path>       Write logs to specified file");
-        System.err.println("  --xmx=<size>            Set JVM maximum heap size (e.g. 2g)");
-        System.err.println("  --xms=<size>            Set JVM initial heap size");
-        System.err.println("  --xss=<size>            Set JVM thread stack size");
+        logger.info("Usage:");
+        logger.indent();
+        logger.info("Classpath mode (run with project + deps on classpath):");
+        logger.indent();
+        logger.info("java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ArchimoMain --app-class=<fqcn> [--output-dir=<path>] [-v]");
+        logger.info("java -cp \"<project-cp>:<this-jar>\" fr.geoking.archimo.extract.ArchimoMain --base-package=<package> [--output-dir=<path>] [-v]");
+        logger.unindent();
+        logger.info("Project mode (builds with Maven then extracts):");
+        logger.indent();
+        logger.info("java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve] [-v] [--xmx=1g]");
+        logger.unindent();
+        logger.info("GitHub mode (clones repo, builds with Maven then extracts):");
+        logger.indent();
+        logger.info("java -jar archimo-all.jar --github-url=<url> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve] [-v] [--xmx=1g]");
+        logger.unindent();
+        logger.info("Workflow generation:");
+        logger.indent();
+        logger.info("java -jar archimo-all.jar --generate-workflow");
+        logger.unindent();
+        logger.unindent();
+        logger.info("");
+        logger.info("Options:");
+        logger.indent();
+        logger.info("-o, --output-format     Diagram / export formats (comma-separated): plantuml, mermaid, json");
+        logger.info("                        Default: plantuml,mermaid. Example: -o json or -o plantuml,mermaid,json");
+        logger.info("-v, --verbose           Enable verbose logging");
+        logger.info("--log-file=<path>       Write logs to specified file");
+        logger.info("--xmx=<size>            Set JVM maximum heap size (e.g. 2g)");
+        logger.info("--xms=<size>            Set JVM initial heap size");
+        logger.info("--xss=<size>            Set JVM thread stack size");
+        logger.unindent();
     }
 
     private static final class Config {
@@ -556,7 +580,7 @@ public final class ArchimoMain {
             boolean expectOutputFormatToken = false;
             for (String a : args) {
                 if (expectOutputFormatToken) {
-                    outputFormats = mergeOutputFormats(outputFormats, OutputFormat.parseCsv(a, msg -> System.err.println("WARN: " + msg)));
+                    outputFormats = mergeOutputFormats(outputFormats, OutputFormat.parseCsv(a, msg -> Logger.getInstance().warn(msg)));
                     expectOutputFormatToken = false;
                     continue;
                 }
@@ -578,8 +602,8 @@ public final class ArchimoMain {
                     messagingScanConcurrency = MessagingScanConcurrency.parseCli(a.substring("--messaging-scan-concurrency=".length()));
                 } else if (a.equals("--internal-child")) internalChild = true;
                 else if (a.equals("-o") || a.equals("--output-format")) expectOutputFormatToken = true;
-                else if (a.startsWith("-o=")) outputFormats = mergeOutputFormats(outputFormats, OutputFormat.parseCsv(a.substring("-o=".length()), msg -> System.err.println("WARN: " + msg)));
-                else if (a.startsWith("--output-format=")) outputFormats = mergeOutputFormats(outputFormats, OutputFormat.parseCsv(a.substring("--output-format=".length()), msg -> System.err.println("WARN: " + msg)));
+                else if (a.startsWith("-o=")) outputFormats = mergeOutputFormats(outputFormats, OutputFormat.parseCsv(a.substring("-o=".length()), msg -> Logger.getInstance().warn(msg)));
+                else if (a.startsWith("--output-format=")) outputFormats = mergeOutputFormats(outputFormats, OutputFormat.parseCsv(a.substring("--output-format=".length()), msg -> Logger.getInstance().warn(msg)));
             }
             if (expectOutputFormatToken) return null;
             if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow) return null;
@@ -599,49 +623,4 @@ public final class ArchimoMain {
         }
     }
 
-    private static class Logger {
-        private final boolean verbose;
-        private final java.io.File logFile;
-
-        Logger(boolean verbose, java.io.File logFile) {
-            this.verbose = verbose;
-            this.logFile = logFile;
-        }
-
-        void info(String msg) {
-            System.out.println(msg);
-            logToDisk("INFO: " + msg);
-        }
-
-        void debug(String msg) {
-            if (verbose) {
-                System.out.println(msg);
-            }
-            logToDisk("DEBUG: " + msg);
-        }
-
-        void error(String msg) {
-            System.err.println("ERROR: " + msg);
-            logToDisk("ERROR: " + msg);
-        }
-
-        void error(String msg, Throwable t) {
-            System.err.println("ERROR: " + msg);
-            t.printStackTrace(System.err);
-            logToDisk("ERROR: " + msg);
-            if (logFile != null) {
-                try (PrintWriter pw = new PrintWriter(new FileOutputStream(logFile, true))) {
-                    t.printStackTrace(pw);
-                } catch (IOException ignored) {}
-            }
-        }
-
-        private synchronized void logToDisk(String msg) {
-            if (logFile != null) {
-                try (PrintWriter pw = new PrintWriter(new FileOutputStream(logFile, true))) {
-                    pw.println(msg);
-                } catch (IOException ignored) {}
-            }
-        }
-    }
 }

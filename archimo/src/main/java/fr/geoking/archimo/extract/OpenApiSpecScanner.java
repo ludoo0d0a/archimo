@@ -52,7 +52,7 @@ public class OpenApiSpecScanner {
                 }
             });
         } catch (IOException e) {
-            System.err.println("Error scanning OpenAPI/Swagger files: " + e.getMessage());
+            Logger.getInstance().error("Error scanning OpenAPI/Swagger files: " + e.getMessage());
         }
         return found.stream().distinct().toList();
     }

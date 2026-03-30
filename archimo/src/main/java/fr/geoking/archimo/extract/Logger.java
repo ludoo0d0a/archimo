@@ -11,6 +11,22 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class Logger {
 
+    private static final boolean SUPPORTS_EMOJI = isEmojiSupported();
+
+    private static boolean isEmojiSupported() {
+        if (!java.nio.charset.Charset.defaultCharset().name().toUpperCase().contains("UTF-8")) {
+            return false;
+        }
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("win")) {
+            return System.getenv("WT_SESSION") != null || 
+                   System.getenv("TERMINAL_EMULATOR") != null ||
+                   "vscode".equals(System.getenv("TERM_PROGRAM")) ||
+                   "mintty".equals(System.getenv("TERM_PROGRAM"));
+        }
+        return true;
+    }
+
     private static Logger instance = new Logger(false, null);
 
     private final boolean verbose;
@@ -41,29 +57,29 @@ public final class Logger {
     }
 
     public void info(String msg) {
-        log("ℹ️", msg, false);
+        log(SUPPORTS_EMOJI ? "ℹ️" : "[INFO]", msg, false);
         logToDisk("INFO: " + msg);
     }
 
     public void debug(String msg) {
         if (verbose) {
-            log("🔍", msg, false);
+            log(SUPPORTS_EMOJI ? "🔍" : "[DEBUG]", msg, false);
         }
         logToDisk("DEBUG: " + msg);
     }
 
     public void warn(String msg) {
-        log("⚠️", msg, true);
+        log(SUPPORTS_EMOJI ? "⚠️" : "[WARN]", msg, true);
         logToDisk("WARN: " + msg);
     }
 
     public void error(String msg) {
-        log("❌", msg, true);
+        log(SUPPORTS_EMOJI ? "❌" : "[ERROR]", msg, true);
         logToDisk("ERROR: " + msg);
     }
 
     public void error(String msg, Throwable t) {
-        log("❌", msg, true);
+        log(SUPPORTS_EMOJI ? "❌" : "[ERROR]", msg, true);
         t.printStackTrace(System.err);
         logToDisk("ERROR: " + msg);
         if (logFile != null) {
@@ -74,7 +90,7 @@ public final class Logger {
     }
 
     public void success(String msg) {
-        log("✅", msg, false);
+        log(SUPPORTS_EMOJI ? "✅" : "[OK]", msg, false);
         logToDisk("SUCCESS: " + msg);
     }
 

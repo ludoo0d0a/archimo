@@ -43,6 +43,7 @@
         <spring-cloud.version>2025.1.1</spring-cloud.version>
         <!-- spring-modulith 2.x aligns with Spring Boot 4; Java 25 bytecode via ArchUnit -->
         <archunit.version>1.4.1</archunit.version>
+        <archimo.classifier>all</archimo.classifier>
     </properties>
 
     <dependencyManagement>
@@ -96,4 +97,27 @@
             </plugins>
         </pluginManagement>
     </build>
+
+    <profiles>
+        <profile>
+            <id>java17</id>
+            <properties>
+                <java.version>17</java.version>
+                <maven.compiler.source>17</maven.compiler.source>
+                <maven.compiler.target>17</maven.compiler.target>
+                <maven.compiler.release>17</maven.compiler.release>
+                <archimo.classifier>jdk17</archimo.classifier>
+            </properties>
+        </profile>
+        <profile>
+            <id>java25</id>
+            <properties>
+                <java.version>25</java.version>
+                <maven.compiler.source>25</maven.compiler.source>
+                <maven.compiler.target>25</maven.compiler.target>
+                <maven.compiler.release>25</maven.compiler.release>
+                <archimo.classifier>jdk25</archimo.classifier>
+            </properties>
+        </profile>
+    </profiles>
 </project>

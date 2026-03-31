@@ -73,32 +73,39 @@ public final class ModulithExtractor {
     /** When null or empty, {@link OutputFormat#DEFAULT_DIAGRAM_FORMATS} is used. */
     private final Set<OutputFormat> outputFormats;
     private final ObjectMapper objectMapper;
+    private final String eventInterface;
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir) {
-        this(modules, outputDir, null, false, MessagingScanConcurrency.AUTO, null, null);
+        this(modules, outputDir, null, false, MessagingScanConcurrency.AUTO, null, null, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir) {
-        this(modules, outputDir, projectDir, false, MessagingScanConcurrency.AUTO, null, null);
+        this(modules, outputDir, projectDir, false, MessagingScanConcurrency.AUTO, null, null, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode) {
-        this(modules, outputDir, projectDir, fullDependencyMode, MessagingScanConcurrency.AUTO, null, null);
+        this(modules, outputDir, projectDir, fullDependencyMode, MessagingScanConcurrency.AUTO, null, null, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode,
                              MessagingScanConcurrency messagingScanConcurrency) {
-        this(modules, outputDir, projectDir, fullDependencyMode, messagingScanConcurrency, null, null);
+        this(modules, outputDir, projectDir, fullDependencyMode, messagingScanConcurrency, null, null, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode,
                              MessagingScanConcurrency messagingScanConcurrency, String applicationMainClassOverride) {
-        this(modules, outputDir, projectDir, fullDependencyMode, messagingScanConcurrency, applicationMainClassOverride, null);
+        this(modules, outputDir, projectDir, fullDependencyMode, messagingScanConcurrency, applicationMainClassOverride, null, null);
     }
 
     public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode,
                              MessagingScanConcurrency messagingScanConcurrency, String applicationMainClassOverride,
                              Set<OutputFormat> outputFormats) {
+        this(modules, outputDir, projectDir, fullDependencyMode, messagingScanConcurrency, applicationMainClassOverride, outputFormats, null);
+    }
+
+    public ModulithExtractor(ApplicationModules modules, Path outputDir, Path projectDir, boolean fullDependencyMode,
+                             MessagingScanConcurrency messagingScanConcurrency, String applicationMainClassOverride,
+                             Set<OutputFormat> outputFormats, String eventInterface) {
         this.modules = modules;
         this.outputDir = Objects.requireNonNull(outputDir);
         this.projectDir = projectDir;
@@ -112,6 +119,7 @@ public final class ModulithExtractor {
                 : EnumSet.copyOf(outputFormats);
         this.objectMapper = new ObjectMapper()
                 .enable(SerializationFeature.INDENT_OUTPUT);
+        this.eventInterface = eventInterface;
     }
 
     /** In-memory C4/report structure for the last {@link #extract()} run; drives diagram ordering and site JSON. */
@@ -126,12 +134,8 @@ public final class ModulithExtractor {
         logger.info("Extracting architecture insights...");
         logger.indent();
 
-        // 1. Core extraction (synchronous as modules are needed for downstream steps)
-        List<ModuleEvents> eventsMap = modules != null ? buildEventsMap() : List.of();
-        List<EventFlow> flows = modules != null ? buildEventFlows() : List.of();
-        List<SequenceFlow> sequences = modules != null ? buildSequences() : List.of();
-        List<ModuleDependency> moduleDependencies = modules != null ? buildModuleDependencies() : List.of();
-        List<CommandFlow> commandFlows = modules != null ? buildCommandFlowsFromEventFlows(flows) : List.of();
+        // 1. Scan for custom events if we have classes
+        final List<JavaClass> discoveredEventsClasses = new ArrayList<>();
 
         // 2. BPMN scan on common pool only; ArchUnit graph must not be traversed concurrently
         BpmnScanner bpmnScanner = new BpmnScanner();
@@ -157,6 +161,13 @@ public final class ModulithExtractor {
                 classesParsedCount = importedClasses.size();
 
                 ArchitectureScanner architectureScanner = new ArchitectureScanner();
+
+                for (JavaClass clazz : importedClasses) {
+                    if (architectureScanner.isEvent(clazz, eventInterface)) {
+                        discoveredEventsClasses.add(clazz);
+                    }
+                }
+
                 architectureInfos = architectureScanner.scan(importedClasses);
                 entityRelations = architectureScanner.scanEntityRelations(importedClasses);
                 endpointFlows = new EndpointScanner().scan(importedClasses);
@@ -198,6 +209,13 @@ public final class ModulithExtractor {
         logger.info("Parsed " + classesParsedCount + " classes and " + bpmnFilesParsed + " BPMN files.");
 
         String applicationMainClass = resolveApplicationMainClass(importedClasses, applicationMainClassOverride, projectDir);
+
+        // 1. Core extraction (synchronous as modules are needed for downstream steps)
+        List<ModuleEvents> eventsMap = modules != null ? buildEventsMap(discoveredEventsClasses) : List.of();
+        List<EventFlow> flows = modules != null ? buildEventFlows(discoveredEventsClasses) : List.of();
+        List<SequenceFlow> sequences = buildSequences(flows);
+        List<ModuleDependency> moduleDependencies = modules != null ? buildModuleDependencies() : List.of();
+        List<CommandFlow> commandFlows = buildCommandFlowsFromEventFlows(flows);
 
         ExtractResult result = new ExtractResult(
                 eventsMap, flows, sequences, moduleDependencies, classDependencies, entityRelations,
@@ -263,20 +281,31 @@ public final class ModulithExtractor {
         return result;
     }
 
-    private List<ModuleEvents> buildEventsMap() {
+    private List<ModuleEvents> buildEventsMap(List<JavaClass> discoveredEventsClasses) {
         return StreamSupport.stream(modules.spliterator(), false)
-                .map(module -> new ModuleEvents(
-                        module.getDisplayName(),
-                        module.getBasePackage().getName(),
-                        module.getPublishedEvents().stream()
-                                .map(this::eventTypeName)
-                                .toList(),
-                        toEventTypeNames(module.getEventsListenedTo(modules))
-                ))
+                .map(module -> {
+                    Set<String> publishedEvents = new HashSet<>();
+                    module.getPublishedEvents().stream()
+                            .map(this::eventTypeName)
+                            .forEach(publishedEvents::add);
+
+                    // Add discovered events that live in this module's package
+                    discoveredEventsClasses.stream()
+                            .filter(clazz -> module.getBasePackage().contains(clazz.getPackageName()))
+                            .map(JavaClass::getSimpleName)
+                            .forEach(publishedEvents::add);
+
+                    return new ModuleEvents(
+                            module.getDisplayName(),
+                            module.getBasePackage().getName(),
+                            publishedEvents.stream().sorted().toList(),
+                            toEventTypeNames(module.getEventsListenedTo(modules))
+                    );
+                })
                 .toList();
     }
 
-    private List<EventFlow> buildEventFlows() {
+    private List<EventFlow> buildEventFlows(List<JavaClass> discoveredEventsClasses) {
         Map<String, String> eventToPublisher = new HashMap<>();
         Map<String, List<String>> eventToListeners = new HashMap<>();
 
@@ -285,6 +314,11 @@ public final class ModulithExtractor {
                 String eventName = eventTypeName(ev);
                 eventToPublisher.put(eventName, module.getDisplayName());
             }
+            // Discovered events from classes
+            discoveredEventsClasses.stream()
+                    .filter(clazz -> module.getBasePackage().contains(clazz.getPackageName()))
+                    .forEach(clazz -> eventToPublisher.putIfAbsent(clazz.getSimpleName(), module.getDisplayName()));
+
             for (Object listened : module.getEventsListenedTo(modules)) {
                 String eventName = toSingleEventTypeName(listened);
                 eventToListeners.computeIfAbsent(eventName, k -> new ArrayList<>()).add(module.getDisplayName());
@@ -299,8 +333,8 @@ public final class ModulithExtractor {
                 .toList();
     }
 
-    private List<SequenceFlow> buildSequences() {
-        return buildEventFlows().stream()
+    private List<SequenceFlow> buildSequences(List<EventFlow> flows) {
+        return flows.stream()
                 .map(f -> new SequenceFlow(f.eventType(), f.publisherModule(), f.listenerModules()))
                 .toList();
     }

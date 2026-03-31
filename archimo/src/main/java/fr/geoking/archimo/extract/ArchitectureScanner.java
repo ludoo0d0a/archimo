@@ -42,6 +42,42 @@ public class ArchitectureScanner {
                 .toList();
     }
 
+    public boolean isEvent(JavaClass clazz, String customEventInterface) {
+        if (clazz.isInterface()) {
+            return false;
+        }
+
+        // jMolecules interfaces
+        if (clazz.isAssignableTo("org.jmolecules.event.types.DomainEvent") ||
+            clazz.isAssignableTo("org.jmolecules.ddd.types.DomainEvent")) {
+            return true;
+        }
+
+        // jMolecules annotations
+        if (clazz.isAnnotatedWith("org.jmolecules.event.annotation.DomainEvent") ||
+            clazz.isAnnotatedWith("org.jmolecules.ddd.annotation.DomainEvent")) {
+            return true;
+        }
+
+        // Custom interface
+        if (customEventInterface != null && !customEventInterface.isBlank()) {
+            if (clazz.isAssignableTo(customEventInterface)) {
+                return true;
+            }
+        }
+
+        // Heuristic: Ends with "Event" and lives in a domain/model package
+        String name = clazz.getSimpleName();
+        if (name.endsWith("Event") || name.endsWith("Command")) {
+            String layer = identifyLayer(clazz);
+            if ("domain".equals(layer) || "application".equals(layer)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public List<EntityRelation> scanEntityRelations(JavaClasses classes) {
         Set<String> entityTypes = StreamSupport.stream(classes.spliterator(), false)
                 .filter(this::isEntity)

@@ -100,7 +100,7 @@ public final class ArchimoMain {
                 System.exit(1);
             }
 
-            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.module, config.serve, config.verbose, config.logFile, config.xmx, config.xms, config.xss, config.messagingScanConcurrency, false, config.outputFormats);
+            Config newConfig = new Config(tempDir.toFile(), config.appClass, config.basePackage, config.outputDir, null, false, config.fullDependencyMode, config.module, config.serve, config.verbose, config.logFile, config.xmx, config.xms, config.xss, config.messagingScanConcurrency, false, config.outputFormats, config.eventInterface);
             runProjectMode(newConfig);
             logger.unindent();
 
@@ -202,6 +202,9 @@ public final class ArchimoMain {
             javaArgs.add("--app-class=" + appClass);
             javaArgs.add("--output-dir=" + outDirStr);
             javaArgs.add("--project-dir=" + config.projectDir.getAbsolutePath());
+            if (config.eventInterface != null) {
+                javaArgs.add("--event-interface=" + config.eventInterface);
+            }
             if (config.fullDependencyMode) {
                 javaArgs.add("--full-dependency-mode");
             }
@@ -291,14 +294,14 @@ public final class ArchimoMain {
                     Class<?> app = Class.forName(config.appClass);
                     modules = ApplicationModules.of(app);
                 }
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 logger.debug("Could not initialize Spring Modulith modules (ignoring if not a Modulith project): " + e.getMessage());
             }
 
             Path outputDir = config.outputDir != null ? config.outputDir.toPath() : Path.of("archimo-docs");
             Path projectDir = config.projectDir != null ? config.projectDir.toPath() : null;
             ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, projectDir, config.fullDependencyMode,
-                    config.messagingScanConcurrency, config.appClass, config.outputFormats);
+                    config.messagingScanConcurrency, config.appClass, config.outputFormats, config.eventInterface);
             ExtractResult result = extractor.extract();
 
             logger.success("Extraction complete! 🚀");
@@ -561,7 +564,7 @@ public final class ArchimoMain {
         logger.unindent();
         logger.info("Project mode (builds with Maven then extracts):");
         logger.indent();
-        logger.info("java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--serve] [-v] [--xmx=1g]");
+        logger.info("java -jar archimo-all.jar --project-dir=<path> [--app-class=<fqcn>] [--module=<name>] [--output-dir=<path>] [--full-dependency-mode] [--event-interface=<fqcn>] [--serve] [-v] [--xmx=1g]");
         logger.unindent();
         logger.info("GitHub mode (clones repo, builds with Maven then extracts):");
         logger.indent();
@@ -581,6 +584,7 @@ public final class ArchimoMain {
         logger.info("-v, --verbose           Enable verbose logging");
         logger.info("--log-file=<path>       Write logs to specified file");
         logger.info("--xmx=<size>            Set JVM maximum heap size (e.g. 2g)");
+        logger.info("--event-interface=<fqcn> Fully qualified name of a custom interface marking events");
         logger.info("--xms=<size>            Set JVM initial heap size");
         logger.info("--xss=<size>            Set JVM thread stack size");
         logger.unindent();
@@ -605,8 +609,9 @@ public final class ArchimoMain {
         final boolean internalChild;
         /** When null, {@link ModulithExtractor} uses {@link OutputFormat#DEFAULT_DIAGRAM_FORMATS}. */
         final Set<OutputFormat> outputFormats;
+        final String eventInterface;
 
-        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode, String module, boolean serve, boolean verbose, java.io.File logFile, String xmx, String xms, String xss, MessagingScanConcurrency messagingScanConcurrency, boolean internalChild, Set<OutputFormat> outputFormats) {
+        Config(java.io.File projectDir, String appClass, String basePackage, java.io.File outputDir, String githubUrl, boolean generateWorkflow, boolean fullDependencyMode, String module, boolean serve, boolean verbose, java.io.File logFile, String xmx, String xms, String xss, MessagingScanConcurrency messagingScanConcurrency, boolean internalChild, Set<OutputFormat> outputFormats, String eventInterface) {
             this.projectDir = projectDir;
             this.appClass = appClass;
             this.basePackage = basePackage;
@@ -624,6 +629,7 @@ public final class ArchimoMain {
             this.messagingScanConcurrency = messagingScanConcurrency != null ? messagingScanConcurrency : MessagingScanConcurrency.AUTO;
             this.internalChild = internalChild;
             this.outputFormats = outputFormats;
+            this.eventInterface = eventInterface;
         }
 
         static Config parse(String[] args) {
@@ -644,6 +650,7 @@ public final class ArchimoMain {
             MessagingScanConcurrency messagingScanConcurrency = MessagingScanConcurrency.AUTO;
             boolean internalChild = false;
             Set<OutputFormat> outputFormats = null;
+            String eventInterface = null;
             boolean expectOutputFormatToken = false;
             for (String a : args) {
                 if (expectOutputFormatToken) {
@@ -667,7 +674,8 @@ public final class ArchimoMain {
                 else if (a.startsWith("--xss=")) xss = a.substring("--xss=".length()).trim();
                 else if (a.startsWith("--messaging-scan-concurrency=")) {
                     messagingScanConcurrency = MessagingScanConcurrency.parseCli(a.substring("--messaging-scan-concurrency=".length()));
-                } else if (a.equals("--internal-child")) internalChild = true;
+                } else if (a.startsWith("--event-interface=")) eventInterface = a.substring("--event-interface=".length()).trim();
+                else if (a.equals("--internal-child")) internalChild = true;
                 else if (a.equals("-o") || a.equals("--output-format")) expectOutputFormatToken = true;
                 else if (a.startsWith("-o=")) outputFormats = mergeOutputFormats(outputFormats, OutputFormat.parseCsv(a.substring("-o=".length()), msg -> Logger.getInstance().warn(msg)));
                 else if (a.startsWith("--output-format=")) outputFormats = mergeOutputFormats(outputFormats, OutputFormat.parseCsv(a.substring("--output-format=".length()), msg -> Logger.getInstance().warn(msg)));
@@ -675,7 +683,7 @@ public final class ArchimoMain {
             if (expectOutputFormatToken) return null;
             if (projectDir == null && appClass == null && basePackage == null && githubUrl == null && !generateWorkflow && !serve) return null;
             if (projectDir != null && !projectDir.isDirectory()) return null;
-            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, module, serve, verbose, logFile, xmx, xms, xss, messagingScanConcurrency, internalChild, outputFormats);
+            return new Config(projectDir, appClass, basePackage, outputDir, githubUrl, generateWorkflow, fullDependencyMode, module, serve, verbose, logFile, xmx, xms, xss, messagingScanConcurrency, internalChild, outputFormats, eventInterface);
         }
 
         private static Set<OutputFormat> mergeOutputFormats(Set<OutputFormat> acc, Set<OutputFormat> parsed) {

@@ -55,6 +55,24 @@ class ModulithExtractorTest {
     }
 
     @Test
+    void parseSampleEcommerceProject_discoversInternalEvents() throws Exception {
+        ApplicationModules modules = ApplicationModules.of(EcommerceApplication.class);
+        Path sampleProjectDir = findSampleProjectDir();
+        ModulithExtractor extractor = new ModulithExtractor(modules, outputDir, sampleProjectDir);
+        ExtractResult result = extractor.extract();
+
+        List<ModuleEvents> eventsMap = result.eventsMap();
+
+        var orderModule = eventsMap.stream().filter(m -> "Order".equals(m.moduleName())).findFirst().orElseThrow();
+
+        // OrderCreated is discovered by Modulith
+        assertThat(orderModule.publishedEvents()).contains("OrderCreated");
+
+        // OrderLineAdded is an internal event discovered by ArchitectureScanner
+        assertThat(orderModule.publishedEvents()).contains("OrderLineAdded");
+    }
+
+    @Test
     void parseSampleEcommerceProject_producesEventsMapWithOrderAndCatalog() throws Exception {
         ApplicationModules modules = ApplicationModules.of(EcommerceApplication.class);
         ModulithExtractor extractor = new ModulithExtractor(modules, outputDir);

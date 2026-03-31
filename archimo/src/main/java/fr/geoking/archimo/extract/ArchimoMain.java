@@ -402,7 +402,7 @@ public final class ArchimoMain {
             server.setExecutor(Executors.newFixedThreadPool(2));
             String url = "http://localhost:" + port;
             logger.success("Web server started at " + url + " 🌐");
-            logger.info("To run it manually: python3 -m http.server -d " + siteDir.toAbsolutePath() + " " + port);
+            logger.info("To run it manually: java -jar <archimo.jar> --serve --output-dir=" + siteDir.getParent().toAbsolutePath());
             logger.info("Press Ctrl+C to stop.");
             server.start();
 
